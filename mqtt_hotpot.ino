@@ -4,7 +4,7 @@
 #include <ArduinoOTA.h>
 #include <PubSubClient.h>
 
-#include "credentials.h"
+#include "mqtt_hotpot.h"
 
 const float temperature_change_threshold = 0.1;
 const float freeze_threshold             = 2.0;
@@ -13,7 +13,7 @@ const float fire_threshold               = 5.0;
 
 
 // MQTT Broker
-const char *topic_prefix = "homeassistant/sensor/hotpot_";
+const char *topic_prefix  = "homeassistant/";
 const char *config_suffix = "/config";
 
 
@@ -50,13 +50,8 @@ void setup(void) {
 
 // -------------------------------------------------------------------------
   // Connecting to a Wi-Fi network
-  WiFi.setHostname(hostname);
-  Serial.print("Connecting to WiFi... ");
-  WiFi.begin((char *)ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-  }
-  Serial.println("... connected");
+  WiFi.setHostname(device_name);
+  connectWifi();
 // -------------------------------------------------------------------------
 
 
@@ -116,26 +111,21 @@ void setup(void) {
   if (client.setBufferSize(512)) {
     Serial.println("Resized buffer successfully");
   }
+
   // Create Vorlauf Sensor
-  sprintf(mqtt_message, "{\"name\": \"Vorlauf\",  \"device_class\": \"temperature\", \"state_topic\": \"homeassistant/sensor/sensor_hotpot/state\", \"unit_of_measurement\":\"°C\", \"value_template\":\"{{ value_json.vorlauf}}\",    \"unique_id\": \"unique_id_vor\",   \"device\": {\"identifiers\": [\"hotpot_temperature\"], \"name\": \"Hotpot\", \"manufacturer\": \"Kirami\", \"model\": \"Comfort Steady M\", \"model_id\": \"Nightblack\"} }");
-  sprintf(topic, "%svorlauf%s", topic_prefix, config_suffix);
-  client.publish(topic, mqtt_message);
+  createNewSensor("Vorlauf",   "temperature", "homeassistant/sensor/sensor_hotpot/state", "unique_id_vor",   "hotpot_temperature", device_name, manufacturer, model, model_id, "sensor", "°C", "{{ value_json.vorlauf }}");
+
   // Create Ruecklauf Sensor
-  sprintf(mqtt_message, "{\"name\": \"Rücklauf\",  \"device_class\": \"temperature\", \"state_topic\": \"homeassistant/sensor/sensor_hotpot/state\", \"unit_of_measurement\":\"°C\", \"value_template\":\"{{ value_json.ruecklauf}}\", \"unique_id\": \"unique_id_rueck\", \"device\": {\"identifiers\": [\"hotpot_temperature\"], \"name\": \"Hotpot\", \"manufacturer\": \"Kirami\", \"model\": \"Comfort Steady M\", \"model_id\": \"Nightblack\"} }");
-  sprintf(topic, "%sruecklauf%s", topic_prefix, config_suffix);
-  client.publish(topic, mqtt_message);
+  createNewSensor("Rücklauf",  "temperature", "homeassistant/sensor/sensor_hotpot/state", "unique_id_rueck", "hotpot_temperature", device_name, manufacturer, model, model_id, "sensor", "°C", "{{ value_json.ruecklauf }}");
+
   // Create Difference Sensor
-  sprintf(mqtt_message, "{\"name\": \"Differenz\", \"device_class\": \"temperature\", \"state_topic\": \"homeassistant/sensor/sensor_hotpot/state\", \"unit_of_measurement\":\"°C\", \"value_template\":\"{{ value_json.difference}}\",\"unique_id\": \"unique_id_diff\",  \"device\": {\"identifiers\": [\"hotpot_temperature\"], \"name\": \"Hotpot\", \"manufacturer\": \"Kirami\", \"model\": \"Comfort Steady M\", \"model_id\": \"Nightblack\"} }");
-  sprintf(topic, "%sdifference%s", topic_prefix, config_suffix);
-  client.publish(topic, mqtt_message);
+  createNewSensor("Differenz", "temperature", "homeassistant/sensor/sensor_hotpot/state", "unique_id_diff",  "hotpot_temperature", device_name, manufacturer, model, model_id, "sensor", "°C", "{{ value_json.difference }}");
+
   // Create Fire state Sensor
-  sprintf(mqtt_message, "{\"name\": \"Feuer\", \"device_class\": \"heat\", \"state_topic\": \"homeassistant/binary_sensor/sensor_fire_hotpot/state\", \"unique_id\": \"unique_id_fire_state\",  \"device\": {\"identifiers\": [\"hotpot_temperature\"], \"name\": \"Hotpot\", \"manufacturer\": \"Kirami\", \"model\": \"Comfort Steady M\", \"model_id\": \"Nightblack\"} }");
-  sprintf(topic, "homeassistant/binary_sensor/hotpot_fire_state%s", config_suffix);
-  client.publish(topic, mqtt_message);
+  createNewSensor("Feuer",     "heat",        "homeassistant/binary_sensor/sensor_fire_hotpot/state", "unique_id_fire_state", "hotpot_temperature", device_name, manufacturer, model, model_id, "binary_sensor");
+
   // Create Freeze state Sensor
-  sprintf(mqtt_message, "{\"name\": \"Frost\", \"device_class\": \"cold\", \"state_topic\": \"homeassistant/binary_sensor/sensor_freeze_hotpot/state\", \"unique_id\": \"unique_id_freeze_state\",  \"device\": {\"identifiers\": [\"hotpot_temperature\"], \"name\": \"Hotpot\", \"manufacturer\": \"Kirami\", \"model\": \"Comfort Steady M\", \"model_id\": \"Nightblack\"} }");
-  sprintf(topic, "homeassistant/binary_sensor/hotpot_freeze_state%s", config_suffix);
-  client.publish(topic, mqtt_message);
+  createNewSensor("Frost",     "cold",        "homeassistant/binary_sensor/sensor_freeze_hotpot/state", "unique_id_freeze_state", "hotpot_temperature", device_name, manufacturer, model, model_id, "binary_sensor");
 
   if (client.setBufferSize(256)) {
     Serial.println("Resized buffer successfully");
@@ -149,12 +139,29 @@ void loop(void) {
   ArduinoOTA.handle();
   client.loop();
 
+  // Check WIFI connection
+  if (WiFi.status() != WL_CONNECTED)
+  {
+    // if disconnected, reconnect
+    connectWifi();
+  }
+
   if ((millis() - previousMillis) > (UPDATE_RATE_SECONDS*1000))
   {
+    // Check MQTT connection
      if (!client.connected())
      {
-        //connect();
-        Serial.println("MQTT disconnected");
+        //reconnect();
+        String client_id = "hotpot_mqtt-client";
+        while (!client.connected()) {
+          if (client.connect(client_id.c_str(), mqtt_username, mqtt_password)) {
+            Serial.println("Public EMQX MQTT broker connected");
+          } else {
+            Serial.print("failed with state ");
+            Serial.print(client.state());
+            delay(2000);
+          }
+        }
      }
      // Store timestamp
      previousMillis = millis();
@@ -200,4 +207,48 @@ void loop(void) {
      }
   }
 
+}
+
+void connectWifi()
+{
+  Serial.print("Connecting to WiFi... ");
+  WiFi.begin((char *)ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+  } 
+  Serial.println("... connected");
+}
+
+void createNewSensor(const char *name,
+                     const char *device_class, 
+                     const char *state_topic, 
+                     const char *unique_id, 
+                     const char *identifiers, 
+                     const char *device_name, 
+                     const char *manufacturer, 
+                     const char *model, 
+                     const char *model_id,
+                     const char *sensor_type,
+                     const char *unit,
+                     const char *value_template)
+{
+  // Create MQTT payload
+  if (sensor_type == "sensor")
+  {
+     sprintf(mqtt_message, 
+             "{\"name\": \"%s\", \"device_class\": \"%s\", \"state_topic\": \"%s\", \"unit_of_measurement\":\"%s\", \"value_template\":\"%s\", \"unique_id\": \"%s\", \"device\": {\"identifiers\": [\"%s\"], \"name\": \"%s\", \"manufacturer\": \"%s\", \"model\": \"%s\", \"model_id\": \"%s\"} }",\
+             name, device_class, state_topic, unit, value_template, unique_id, identifiers, device_name, manufacturer, model, model_id);
+  } else {
+     sprintf(mqtt_message, 
+             "{\"name\": \"%s\", \"device_class\": \"%s\", \"state_topic\": \"%s\", \"unique_id\": \"%s\", \"device\": {\"identifiers\": [\"%s\"], \"name\": \"%s\", \"manufacturer\": \"%s\", \"model\": \"%s\", \"model_id\": \"%s\"} }",\
+             name, device_class, state_topic, unique_id, identifiers, device_name, manufacturer, model, model_id);
+  }
+  // Create MQTT topic
+  sprintf(topic, "%s/%s/%s/config", topic_prefix, sensor_type, unique_id);
+
+  Serial.print("Creating sensor: ");
+  Serial.println(mqtt_message);
+
+  // Publish
+  client.publish(topic, mqtt_message,true);
 }
