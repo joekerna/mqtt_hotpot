@@ -1,7 +1,7 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
-#include <ESP8266WiFi.h>
-//#include <WiFi.h>
+//#include <ESP8266WiFi.h>
+#include <WiFi.h>
 #include <ArduinoOTA.h>
 #include <PubSubClient.h>
 
@@ -34,8 +34,8 @@ const char *filter_state_topic      = "homeassistant/binary_sensor/sensor_filter
 
 
 // Temperature sensors
-#define ONE_WIRE_BUS D4
-//#define ONE_WIRE_BUS 26
+// #define ONE_WIRE_BUS D4  // ESP8266
+#define ONE_WIRE_BUS 15 // ESP32
 
 // Filter pump
 #define FILTER_RELAY 16
