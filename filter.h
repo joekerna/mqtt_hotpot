@@ -1,0 +1,1 @@
+void switchFilter(bool state);
