@@ -12,6 +12,7 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length) {
   }
   Serial.println("");
 
+
   if (strcmp(topic,"hotpot/temp_threshold")==0)
   {
      Serial.print("Updating temperature threshold to ");
@@ -26,17 +27,14 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length) {
   }
   else if (strcmp(topic,"hotpot/filter")==0)
   {
-    Serial.println((char*)payload);
-    Serial.println((char*)("ON"));
-    if (strcmp((char*)payload, (char*)("ON")) == 0)
+    if (payload[0] == '1')
     {
-       Serial.println("Filter on");
-       //switchFilter(true);
+       switchFilter(true);
     }
     else
     {
-       Serial.println("Filter off");
-       //switchFilter(false);
+       switchFilter(false);
     }
   }
+
 }
