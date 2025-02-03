@@ -1,3 +1,8 @@
+<<<<<<< HEAD
+=======
+//#include <ESP8266WiFi.h>
+#include <WiFi.h>
+>>>>>>> refs/remotes/origin/main
 #include <ArduinoOTA.h>
 #include <PubSubClient.h>
 
@@ -5,6 +10,10 @@
 #include "temperatures.h"
 #include "filter.h"
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> refs/remotes/origin/main
 
 // Wifi Client
 WiFiClient espClient;
@@ -21,6 +30,7 @@ char topic[60];
 // #error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
 // #endif
 
+<<<<<<< HEAD
 // BluetoothSerial SerialBT;
 
 unsigned long readTimestamp = millis();
@@ -37,6 +47,9 @@ void onWifiEvent(WiFiEvent_t event) {
 		default: break;
   }
 }
+=======
+unsigned long readTimestamp = millis();
+>>>>>>> refs/remotes/origin/main
 
 void setup(void) {
   // Connect to serial interface
@@ -87,7 +100,15 @@ void setup(void) {
 
 // -------------------------------------------------------------------------
   // Connect to MQTT broker
+<<<<<<< HEAD
   connectMQTT();
+=======
+  mqtt_client.setServer(mqtt_broker, mqtt_port);
+  mqtt_client.setCallback(mqtt_callback);
+  while (!mqtt_client.connected()) {
+     connectMQTT();
+  }
+>>>>>>> refs/remotes/origin/main
 // -------------------------------------------------------------------------
 
   createHomeAssistantSensor();
@@ -95,8 +116,11 @@ void setup(void) {
   initTemperatureSensors();
 
   initFilter();
+<<<<<<< HEAD
   
   Serial.println("Setup finished");
+=======
+>>>>>>> refs/remotes/origin/main
 }
 
 void loop(void) {
@@ -106,8 +130,23 @@ void loop(void) {
   // Check WIFI connection
   if (WiFi.status() != WL_CONNECTED)
   {
+<<<<<<< HEAD
     Serial.println("Wifi connection lost ...");
     connectWifi();
+=======
+    Serial.println("WiFi connection lost");
+    // if disconnected, reconnect
+    WiFi.reconnect();
+    delay(1000);
+    Serial.println("WiFi reconnected");
+    mqtt_client.publish("hotpot/debug", "WiFi reconnected");
+  }
+  // Check MQTT connection
+  if (!mqtt_client.connected())
+  {
+      //reconnect();
+      connectMQTT();
+>>>>>>> refs/remotes/origin/main
   }
   // Check MQTT connection
   connectMQTT();
@@ -118,14 +157,27 @@ void loop(void) {
 // -------------------------------------------------------------
   if ((millis() - readTimestamp) > (UPDATE_RATE_SECONDS*1000))
   {
+<<<<<<< HEAD
     // Serial.println("Loop ...");
 
+=======
+    // Check MQTT connection
+     if (!mqtt_client.connected())
+     {
+        //reconnect();
+        connectMQTT();
+     }
+>>>>>>> refs/remotes/origin/main
      // Say you're still there
      mqtt_set_availability(true);
 
 
      // Filter control
+<<<<<<< HEAD
      filterControl();
+=======
+    //  filterControl();
+>>>>>>> refs/remotes/origin/main
 
      // Store timestamp
      readTimestamp = millis();
@@ -152,6 +204,7 @@ void connectWifi()
     delay(500);
     retryCounter++;
   } 
+<<<<<<< HEAD
   WiFi.setAutoReconnect(true);
   WiFi.persistent(true);
   if (WiFi.status() == WL_CONNECTED)
@@ -166,11 +219,17 @@ void connectWifi()
   {
     Serial.println("Wifi Connect failed...");
   }
+=======
+  Serial.println("... connected");
+  // Update time
+  configTime(0, 0, ntpServer);
+>>>>>>> refs/remotes/origin/main
 }
 
 void connectMQTT()
 {
    String client_id = "hotpot_mqtt-client";
+<<<<<<< HEAD
     mqtt_client.setServer(mqtt_broker, mqtt_port);
     mqtt_client.setCallback(mqtt_callback);
    if (WiFi.status() == WL_CONNECTED)
@@ -193,6 +252,26 @@ void connectMQTT()
         delay(2000);
       }
     }
+=======
+   Serial.print("Connecting to MQTT broker...");
+   if (!mqtt_client.connected()) {
+     Serial.print(".");
+     if (mqtt_client.connect(client_id.c_str(), mqtt_username, mqtt_password)) {
+       mqtt_client.subscribe("hotpot/temp_threshold");
+       mqtt_client.subscribe("hotpot/filter");
+       mqtt_client.subscribe("hotpot/filter/duration");
+       mqtt_client.subscribe("hotpot/filter/interval");
+       mqtt_client.subscribe("hotpot/filter/switch");
+       mqtt_client.subscribe("hotpot/filter/switch/set");
+       mqtt_client.subscribe("hotpot/debug");
+       Serial.println("connected");
+       mqtt_set_availability(true);
+     } else {
+       Serial.print("failed with state ");
+       Serial.print(mqtt_client.state());
+       delay(2000);
+     }
+>>>>>>> refs/remotes/origin/main
    }
 }
 
@@ -229,9 +308,15 @@ void createNewSensor(const char *name,
 void updateBinarysensor(const char* topic, bool state)
 {
         if (state) {
+<<<<<<< HEAD
           mqtt_client.publish(topic, "ON", true);
         } else {
           mqtt_client.publish(topic, "OFF", true);
+=======
+          mqtt_client.publish(topic, "ON");
+        } else {
+          mqtt_client.publish(topic, "OFF");
+>>>>>>> refs/remotes/origin/main
         }
 }
 
