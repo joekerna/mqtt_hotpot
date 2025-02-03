@@ -7,16 +7,11 @@ OneWire oneWire(ONE_WIRE_BUS);
 // Pass OneWire reference to Dallas Temperature DallasTemperature
 DallasTemperature sensors(&oneWire);
 
-temperatures_t temperatures;
-
-      float temperature_change_threshold = 0.2;
-const float fire_threshold               = 5.0;
-const float freeze_threshold = 2.0;
 
 
-
-// Tendency calculation
-float temp_vor_avg = 0.0, temp_rueck_avg = 0.0;
+const float fire_threshold    = 10.0;
+const float freeze_threshold  =  2.0;
+const float freeze_hysteresis =  1.0;
 
 void initTemperatureSensors()
 {
@@ -24,20 +19,33 @@ void initTemperatureSensors()
   pinMode(ONE_WIRE_BUS, INPUT_PULLUP);
   //pinMode(ONE_WIRE_BUS, INPUT);
   sensors.begin();
+
+  sensors.requestTemperatures();
+  for (int i = HISTORY_LENGTH-1; i > 0; i--)
+  {
+     temperatures.temp_vor[i]   = sensors.getTempCByIndex(0);
+     temperatures.temp_rueck[i] = sensors.getTempCByIndex(1);
+  }
+
 }
-void updateTemperaturesFromSensor()
+
+void fireTendency()
 {
      // Tendency
-     temp_vor_avg   = 0.0;
-     temp_rueck_avg = 0.0;
-     for (int i = 0; i < HISTORY_LENGTH; i++)
-     {
-        temp_vor_avg   += temperatures.temp_vor[i];
-        temp_rueck_avg += temperatures.temp_rueck[i];
-     }
-     temp_vor_avg   /= HISTORY_LENGTH;
-     temp_rueck_avg /= HISTORY_LENGTH;
+     float temp_tendency = 0.0;
+     temp_tendency = (temperatures.temp_rueck[0] - temperatures.temp_rueck[HISTORY_LENGTH-1]) / (HISTORY_LENGTH-1);
 
+     // Publish value to MQTT
+     sprintf(mqtt_message, "{\"tendency\": %.1f}", temp_tendency);
+     mqtt_client.publish(temperature_state_topic, mqtt_message, true);
+
+     // Debug
+     sprintf(mqtt_message, "Temp_0: %.1f, Temp_5: %.1f, Tendency: %.4f", temperatures.temp_rueck[0], temperatures.temp_rueck[HISTORY_LENGTH-1], temp_tendency);
+     mqtt_client.publish("hotpot/debug", mqtt_message);
+}
+
+void updateTemperaturesFromSensor()
+{
      // Get temperature updates
      sensors.requestTemperatures();
      for (int i = HISTORY_LENGTH-1; i > 0; i--)
@@ -46,9 +54,9 @@ void updateTemperaturesFromSensor()
         temperatures.temp_rueck[i] = temperatures.temp_rueck[i-1];
      }
      temperatures.temp_vor[0]   = sensors.getTempCByIndex(0);
-     temperatures.temp_rueck[0] = sensors.getTempCByIndex(1)-0.5;
-     
+     temperatures.temp_rueck[0] = sensors.getTempCByIndex(1);
 
+     fireTendency();
 }
 
 void updateTemperaturesToMQTT()
@@ -56,10 +64,9 @@ void updateTemperaturesToMQTT()
      float vor_change = 0.0, rueck_change = 0.0;
      vor_change    = temperatures.temp_vor[0]   - temperatures.temp_vor_last_transmitted;
      rueck_change  = temperatures.temp_rueck[0] - temperatures.temp_rueck_last_transmitted;
-   mqtt_client.publish("hotpot/debug", "temperature_update to mqtt");
 
      // Update Temperatures if significant change or after fixed time interval
-     if (( (fabs(vor_change) >= temperature_change_threshold) || (fabs(rueck_change) >= temperature_change_threshold) ) && ( temperatures.temp_rueck[0] != 85.0 ) && ( temperatures.temp_vor[0] != 85.0))
+     if (( (fabs(vor_change) >= temperatures.temperature_change_threshold) || (fabs(rueck_change) >= temperatures.temperature_change_threshold) ) && ( temperatures.temp_rueck[0] != 85.0 ) && ( temperatures.temp_vor[0] != 85.0) && ( temperatures.temp_rueck[0] != -127.0 ) && ( temperatures.temp_vor[0] != -127.0))
      {
         // Calculate difference
         temperatures.temp_difference = temperatures.temp_rueck[0] - temperatures.temp_vor[0];
@@ -77,7 +84,7 @@ void updateTemperaturesToMQTT()
         // Publish Frost state
         if (temperatures.frost)
         {
-           if ((temperatures.temp_rueck[0] > (freeze_threshold + 1.0)) & (temperatures.temp_vor[0] > (freeze_threshold + 1.0)))
+           if ((temperatures.temp_rueck[0] > (freeze_threshold + freeze_hysteresis)) & (temperatures.temp_vor[0] > (freeze_threshold + freeze_hysteresis)))
 	   {
                temperatures.frost = false;
            }
@@ -98,5 +105,5 @@ void updateTemperaturesToMQTT()
 
 void setTemperatureChangeThreshold(float newThreshold)
 {
-      temperature_change_threshold = newThreshold;
+      temperatures.temperature_change_threshold = newThreshold;
 }
