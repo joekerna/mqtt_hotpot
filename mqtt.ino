@@ -28,8 +28,12 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length) {
   }
   else if (strcmp(topic,"hotpot/filter/interval")==0)
   {
+<<<<<<< HEAD
      char *endptr;
      updateFilterInterval((unsigned int)strtoul((const char *)(payload), &endptr, 10));
+=======
+    updateFilterInterval((unsigned int)*payload);
+>>>>>>> refs/remotes/origin/main
   }
   else if (strcmp(topic, outside_temperature_topic) == 0)
   {
@@ -73,6 +77,7 @@ void createHomeAssistantSensor()
   mqtt_client.setBufferSize(512);
 
   // Create Vorlauf Sensor
+<<<<<<< HEAD
   createNewSensor("Vorlauf",         "temperature", temperature_state_topic, "ui_vor",             "hotpot_temperature", device_name, manufacturer, model, model_id, "sensor", "{{ value_json.vorlauf }}");
 
   // Create Ruecklauf Sensor
@@ -92,14 +97,35 @@ void createHomeAssistantSensor()
 
   // Create Filter state Sensor      
   createNewSensor("Filter",          "running",     filter_state_topic,      "ui_filter_state",    "hotpot_temperature", device_name, manufacturer, model, model_id, "binary_sensor", "{{ value_json.filter }}");
+=======
+  createNewSensor("Vorlauf",   "temperature", temperature_state_topic, "ui_vor",   "hotpot_temperature", device_name, manufacturer, model, model_id, "sensor", "{{ value_json.vorlauf }}");
+
+  // Create Ruecklauf Sensor
+  createNewSensor("Rücklauf",  "temperature", temperature_state_topic, "ui_rueck", "hotpot_temperature", device_name, manufacturer, model, model_id, "sensor", "{{ value_json.ruecklauf }}");
+
+  // Create Difference Sensor
+  createNewSensor("Differenz", "temperature", temperature_state_topic, "ui_diff",  "hotpot_temperature", device_name, manufacturer, model, model_id, "sensor", "{{ value_json.difference }}");
+
+  // Create Fire state Sensor
+  createNewSensor("Feuer",     "heat",        fire_state_topic,        "ui_fire_state", "hotpot_temperature", device_name, manufacturer, model, model_id, "binary_sensor", "{{ value_json.fire }}");
+
+  // Create Freeze state Sensor
+  createNewSensor("Frost",     "cold",        freeze_state_topic,      "ui_freeze_state", "hotpot_temperature", device_name, manufacturer, model, model_id, "binary_sensor", "{{ value_json.freeze }}");
+
+  // Create Filter state Sensor
+  createNewSensor("Filter",    "running",     filter_state_topic,      "ui_filter_state", "hotpot_temperature", device_name, manufacturer, model, model_id, "binary_sensor", "{{ value_json.filter }}");
+>>>>>>> refs/remotes/origin/main
 
   // Create Filter interval sensor
   createNewSensor("Filter Interval", "temperature", temperature_state_topic, "ui_filter_interval", "hotpot_temperature", device_name, manufacturer, model, model_id, "sensor", "{{ value_json.filter_interval }}");
 
+<<<<<<< HEAD
   // Create Filter duration sensor
   createNewSensor("Filter Duration", "temperature", temperature_state_topic, "ui_filter_duration", "hotpot_temperature", device_name, manufacturer, model, model_id, "sensor", "{{ value_json.filter_duration }}");
 
 
+=======
+>>>>>>> refs/remotes/origin/main
   mqtt_client.setBufferSize(256);
 
 }
