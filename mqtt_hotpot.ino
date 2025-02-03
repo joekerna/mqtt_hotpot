@@ -1,12 +1,9 @@
-//#include <ESP8266WiFi.h>
-#include <WiFi.h>
 #include <ArduinoOTA.h>
 #include <PubSubClient.h>
 
 #include "mqtt_hotpot.h"
 #include "temperatures.h"
 #include "filter.h"
-
 
 
 // Wifi Client
@@ -19,18 +16,39 @@ PubSubClient mqtt_client(espClient);
 char mqtt_message[512];
 char topic[60];
 
+// Bluetooth
+// #if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
+// #error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
+// #endif
+
+// BluetoothSerial SerialBT;
 
 unsigned long readTimestamp = millis();
+
+void onWifiEvent(WiFiEvent_t event) {
+	switch (event) {
+		case WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_CONNECTED:
+			Serial.println("Connected or reconnected to WiFi");
+			break;
+		case WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+			Serial.println("WiFi Disconnected. Enabling WiFi autoconnect");
+			WiFi.setAutoReconnect(true);
+			break;
+		default: break;
+  }
+}
 
 void setup(void) {
   // Connect to serial interface
   Serial.begin(9600);
   Serial.println("Starting...");
+  // SerialBT.begin("Hotpot");
 
 // -------------------------------------------------------------------------
   // Connecting to a Wi-Fi network
   WiFi.setHostname(device_name);
   connectWifi();
+  WiFi.onEvent(onWifiEvent);
 // -------------------------------------------------------------------------
 
 
@@ -44,7 +62,7 @@ void setup(void) {
       type = "filesystem";
 
     // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
-    Serial.println("Start updating " + type);
+    // Serial.println("Start updating " + type);
   });
   ArduinoOTA.onEnd([]() {
     Serial.println("\nEnd");
@@ -69,11 +87,7 @@ void setup(void) {
 
 // -------------------------------------------------------------------------
   // Connect to MQTT broker
-  mqtt_client.setServer(mqtt_broker, mqtt_port);
-  mqtt_client.setCallback(mqtt_callback);
-  while (!mqtt_client.connected()) {
-     connectMQTT();
-  }
+  connectMQTT();
 // -------------------------------------------------------------------------
 
   createHomeAssistantSensor();
@@ -81,6 +95,8 @@ void setup(void) {
   initTemperatureSensors();
 
   initFilter();
+  
+  Serial.println("Setup finished");
 }
 
 void loop(void) {
@@ -90,37 +106,26 @@ void loop(void) {
   // Check WIFI connection
   if (WiFi.status() != WL_CONNECTED)
   {
-    Serial.println("WiFi connection lost");
-    // if disconnected, reconnect
-    WiFi.reconnect();
-    delay(1000);
-    Serial.println("WiFi reconnected");
-    mqtt_client.publish("hotpot/debug", "WiFi reconnected");
+    Serial.println("Wifi connection lost ...");
+    connectWifi();
   }
   // Check MQTT connection
-  if (!mqtt_client.connected())
-  {
-      //reconnect();
-      connectMQTT();
-  }
+  connectMQTT();
+
 
 // -------------------------------------------------------------
 // TEMPERATURES
 // -------------------------------------------------------------
   if ((millis() - readTimestamp) > (UPDATE_RATE_SECONDS*1000))
   {
-    // Check MQTT connection
-     if (!mqtt_client.connected())
-     {
-        //reconnect();
-        connectMQTT();
-     }
+    // Serial.println("Loop ...");
+
      // Say you're still there
      mqtt_set_availability(true);
 
 
      // Filter control
-    //  filterControl();
+     filterControl();
 
      // Store timestamp
      readTimestamp = millis();
@@ -137,38 +142,57 @@ void loop(void) {
 
 void connectWifi()
 {
-  Serial.print("Connecting to WiFi...");
+  // Serial.print("WiFi...");
+  int retryCounter = 0;
   WiFi.begin((char *)ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    Serial.print(".");
+  while ((WiFi.status() != WL_CONNECTED) & (retryCounter <= 20))
+  {
+    // Serial.print(".");
+    Serial.println(retryCounter);
     delay(500);
+    retryCounter++;
   } 
-  Serial.println("... connected");
-  // Update time
-  configTime(0, 0, ntpServer);
+  WiFi.setAutoReconnect(true);
+  WiFi.persistent(true);
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    Serial.println("Wifi Connect successful...");
+
+    // Serial.println("...connected");
+    // Update time
+    configTime(0, 0, ntpServer);
+  }
+  else
+  {
+    Serial.println("Wifi Connect failed...");
+  }
 }
 
 void connectMQTT()
 {
    String client_id = "hotpot_mqtt-client";
-   Serial.print("Connecting to MQTT broker...");
-   if (!mqtt_client.connected()) {
-     Serial.print(".");
-     if (mqtt_client.connect(client_id.c_str(), mqtt_username, mqtt_password)) {
-       mqtt_client.subscribe("hotpot/temp_threshold");
-       mqtt_client.subscribe("hotpot/filter");
-       mqtt_client.subscribe("hotpot/filter/duration");
-       mqtt_client.subscribe("hotpot/filter/interval");
-       mqtt_client.subscribe("hotpot/filter/switch");
-       mqtt_client.subscribe("hotpot/filter/switch/set");
-       mqtt_client.subscribe("hotpot/debug");
-       Serial.println("connected");
-       mqtt_set_availability(true);
-     } else {
-       Serial.print("failed with state ");
-       Serial.print(mqtt_client.state());
-       delay(2000);
-     }
+    mqtt_client.setServer(mqtt_broker, mqtt_port);
+    mqtt_client.setCallback(mqtt_callback);
+   if (WiFi.status() == WL_CONNECTED)
+   {
+    if (!mqtt_client.connected()) {
+      Serial.println("Connecting to MQTT broker ...");
+      if (mqtt_client.connect(client_id.c_str(), mqtt_username, mqtt_password)) {
+        mqtt_client.subscribe("hotpot/temp_threshold");
+        mqtt_client.subscribe("hotpot/filter");
+        mqtt_client.subscribe("hotpot/filter/duration");
+        mqtt_client.subscribe("hotpot/filter/interval");
+        mqtt_client.subscribe("hotpot/filter/switch");
+        mqtt_client.subscribe("hotpot/filter/switch/set");
+        mqtt_client.subscribe("hotpot/debug");
+        // Serial.println("connected");
+        mqtt_set_availability(true);
+      } else {
+        // Serial.print("failed with state ");
+        // Serial.print(mqtt_client.state());
+        delay(2000);
+      }
+    }
    }
 }
 
@@ -198,10 +222,6 @@ void createNewSensor(const char *name,
   // Create MQTT topic
   sprintf(topic, "%s/%s/%s/config", topic_prefix, sensor_type, unique_id);
 
-  // Serial.print("Creating sensor: ");
-  // Serial.println(topic);
-  // Serial.println(mqtt_message);
-
   // Publish
   mqtt_client.publish(topic, mqtt_message, true);
 }
@@ -209,9 +229,9 @@ void createNewSensor(const char *name,
 void updateBinarysensor(const char* topic, bool state)
 {
         if (state) {
-          mqtt_client.publish(topic, "ON");
+          mqtt_client.publish(topic, "ON", true);
         } else {
-          mqtt_client.publish(topic, "OFF");
+          mqtt_client.publish(topic, "OFF", true);
         }
 }
 
