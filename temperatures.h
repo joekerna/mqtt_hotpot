@@ -17,14 +17,18 @@ typedef struct {
    float temp_difference = -5.0;
    float temp_vor_last_transmitted;
    float temp_rueck_last_transmitted;
+   float temperature_change_threshold = 0.2;
    bool  fire  = false;
    bool  frost = false;
 } temperatures_t;
 
+temperatures_t temperatures;
 
 void initTemperatureSensors();
 void updateTemperaturesFromSensor();
 void updateTemperaturesToMQTT();
 void setTemperatureChangeThreshold(float newThreshold);
+
+void fireTendency();
 
 #endif
