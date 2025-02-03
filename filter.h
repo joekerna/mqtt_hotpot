@@ -9,8 +9,14 @@
 // // MQTT topics
 // const char *filter_interval_topic   = "homeassistant/binary_sensor/sensor_filter_interval_hotpot/state";
 
+enum mode_e {
+  manual,
+  automatically
+};
+
 typedef struct {
    bool          state;
+   enum mode_e   mode;
    unsigned long onTime;
    unsigned long offTime;
    unsigned int  intervalHours;
@@ -19,6 +25,7 @@ typedef struct {
 
 void switchFilter(bool state);
 void updateFilterInterval(unsigned int newInterval);
+void updateFilterDuration(unsigned int newDuration);
 
 
 
