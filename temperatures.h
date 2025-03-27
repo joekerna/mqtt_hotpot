@@ -1,5 +1,8 @@
 #ifndef TEMPERATURES_H
 #define TEMPERATURES_H
+
+#include "helper.h"
+
 #include <OneWire.h>
 #include <DallasTemperature.h>
 
@@ -7,11 +10,11 @@
 // #define ONE_WIRE_BUS D4  // ESP8266
 #define ONE_WIRE_BUS 15 // ESP32
 
-#define UPDATE_RATE_SECONDS 5
-#define HISTORY_LENGTH 6
+#define HISTORY_LENGTH 5
 
 
 typedef struct {
+   unsigned int update_rate = 5;
    float temp_vor[HISTORY_LENGTH] = { };
    float temp_rueck[HISTORY_LENGTH] = { };
    float temp_difference = -5.0;
@@ -28,6 +31,8 @@ void initTemperatureSensors();
 void updateTemperaturesFromSensor();
 void updateTemperaturesToMQTT();
 void setTemperatureChangeThreshold(float newThreshold);
+
+void setUpdateRate(unsigned int newUpdateRate);
 
 void fireTendency();
 
