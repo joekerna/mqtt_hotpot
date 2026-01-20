@@ -118,7 +118,7 @@ void loop(void) {
 // -------------------------------------------------------------
 // TEMPERATURES
 // -------------------------------------------------------------
-  if ((millis() - readTimestamp) > (temperatures.update_rate*1000))
+  if ((millis() - readTimestamp) >= (temperatures.update_rate*1000))
   {
     // Serial.println("Loop ...");
      // Say you're still there

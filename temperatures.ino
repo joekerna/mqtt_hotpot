@@ -34,7 +34,7 @@ void initTemperatureSensors()
 
 void fireTendency()
 {
-     if (!(filter.state))
+     // if (!(filter.state))
      {
 	     // Tendency
 	     float temp_tendency = 0.0;
@@ -90,10 +90,26 @@ void updateTemperaturesFromSensor()
 
 }
 
+float lowpass(float *temperatures)
+{
+   float filtered = 0.0;
+
+   for (int i = 0; i < HISTORY_LENGTH; i++)
+   {
+       filtered += temperatures[i];
+   }
+   filtered /= HISTORY_LENGTH;
+
+   return filtered;
+}
+
 void updateTemperaturesToMQTT()
 {
-     float vor_change    = temperatures.temp_vor[0]   - temperatures.temp_vor_last_transmitted;
-     float rueck_change  = temperatures.temp_rueck[0] - temperatures.temp_rueck_last_transmitted;
+     float temp_vor   = lowpass(temperatures.temp_vor);
+     float temp_rueck = lowpass(temperatures.temp_rueck);
+
+     float vor_change    = temp_vor   - temperatures.temp_vor_last_transmitted;
+     float rueck_change  = temp_rueck - temperatures.temp_rueck_last_transmitted;
 
      // Update Temperatures if significant change or after fixed time interval
      if ( (fabs(vor_change)   >= temperatures.temperature_change_threshold) ||
@@ -101,26 +117,31 @@ void updateTemperaturesToMQTT()
         ) 
      {
         // Calculate difference
-        temperatures.temp_difference = temperatures.temp_rueck[0] - temperatures.temp_vor[0];
+        temperatures.temp_difference = temp_rueck - temp_vor;
     
 
         // Publish temperatures
-        sprintf(mqtt_message, "{\"vorlauf\": %.1f, \"ruecklauf\": %.1f , \"difference\": %.1f}", temperatures.temp_vor[0], temperatures.temp_rueck[0], temperatures.temp_difference);
+        sprintf(mqtt_message, "{\"vorlauf\": %.1f, \"ruecklauf\": %.1f , \"difference\": %.1f}", temp_vor, temp_rueck, temperatures.temp_difference);
         mqtt_client.publish(temperature_state_topic, mqtt_message);
-        temperatures.temp_vor_last_transmitted   = temperatures.temp_vor[0];
-        temperatures.temp_rueck_last_transmitted = temperatures.temp_rueck[0];
+        temperatures.temp_vor_last_transmitted   = temp_vor;
+        temperatures.temp_rueck_last_transmitted = temp_rueck;
 
         // Publish Fire state
         temperatures.fire = temperatures.temp_difference > fire_threshold;
         updateBinarysensor(fire_state_topic, temperatures.fire);
 
+        // Update configuration
+        sprintf(mqtt_message, "{\"filter_interval\": %.1f, \"filter_duration\": %.1f}", filter.intervalHours, filter.durationMinutes);
+        mqtt_client.publish(temperature_state_topic, mqtt_message);
+        
+   
         // Calculate tendency
         fireTendency();
 
         // Publish Frost state
         if (temperatures.frost)
         {
-           if ((temperatures.temp_rueck[0] > (freeze_threshold + freeze_hysteresis)) & (temperatures.temp_vor[0] > (freeze_threshold + freeze_hysteresis)))
+           if ((temp_rueck > (freeze_threshold + freeze_hysteresis)) & (temp_vor > (freeze_threshold + freeze_hysteresis)))
 	   {
                temperatures.frost = false;
            }
@@ -128,7 +149,7 @@ void updateTemperaturesToMQTT()
         }
         else
         {
-           if ((temperatures.temp_rueck[0] < freeze_threshold) | (temperatures.temp_vor[0] < freeze_threshold))
+           if ((temp_rueck < freeze_threshold) | (temp_vor < freeze_threshold))
 	   {
                temperatures.frost = true;
            }

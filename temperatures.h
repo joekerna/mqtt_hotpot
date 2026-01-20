@@ -10,11 +10,11 @@
 // #define ONE_WIRE_BUS D4  // ESP8266
 #define ONE_WIRE_BUS 15 // ESP32
 
-#define HISTORY_LENGTH 5
+#define HISTORY_LENGTH 15
 
 
 typedef struct {
-   unsigned int update_rate = 5;
+   unsigned int update_rate = 10;
    float temp_vor[HISTORY_LENGTH] = { };
    float temp_rueck[HISTORY_LENGTH] = { };
    float temp_difference = -5.0;
@@ -33,6 +33,7 @@ void updateTemperaturesToMQTT();
 void setTemperatureChangeThreshold(float newThreshold);
 
 void setUpdateRate(unsigned int newUpdateRate);
+float lowpass(float *temperatures);
 
 void fireTendency();
 
