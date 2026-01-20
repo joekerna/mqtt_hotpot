@@ -26,13 +26,13 @@ void initFilter()
 
 void publishFilterState(bool state)
 {
-    if (filter.state)
+    if (state)
     {
-	mqtt_client.publish(filter_switch_state_topic, "ON", true);
+	mqtt_client.publish(filter_switch_state_topic, "ON", false);
     }
     else
     {
-        mqtt_client.publish(filter_switch_state_topic, "OFF", true);
+        mqtt_client.publish(filter_switch_state_topic, "OFF", false);
     }
 }
 
@@ -70,24 +70,32 @@ void switchFilter(bool state)
 
 void filterControl()
 {
-    sprintf(mqtt_message, "Filter control: state: %d, onTime: %lu offTime: %lu interval: %u duration %u", filter.state, filter.onTime, filter.offTime, filter.intervalHours, filter.durationMinutes);
-    mqtt_client.publish(debug_topic, mqtt_message);
+    unsigned long now = getTime();
+    if (now == 0)
+    {
+       return;
+    }
+
 
     publishFilterState(filter.state);
     if (filter.state)
     {
       // Turn off after fixed time and if no longer freezing
-      if (((unsigned int)((getTime() - filter.onTime)/60) >= filter.durationMinutes) &&
+      if (((unsigned long)((now - filter.onTime)/60) >= (unsigned long)filter.durationMinutes) &&
           (!(temperatures.frost))                                                    &&
           (filter.mode == automatically))
       {
+	// sprintf(mqtt_message, "Turning off: 
+        sprintf(mqtt_message, "Filter control: state: %d, onTime: %lu offTime: %lu interval: %u duration %u current duration: %u", filter.state, filter.onTime, filter.offTime, filter.intervalHours, filter.durationMinutes,
+                    (unsigned int)((now - filter.onTime)/60));
+        mqtt_client.publish(debug_topic, mqtt_message);
         switchFilter(false);
       }
    }
    else
    {
       // Turn on after fixed time or if thread of frost exists
-      if (((unsigned int)((getTime() - filter.offTime)/60/60) >= filter.intervalHours) ||
+      if (((unsigned long)((now - filter.offTime)/60/60) >= (unsigned long)filter.intervalHours) ||
           (temperatures.frost))
       {
         switchFilter(true);
@@ -98,7 +106,7 @@ void filterControl()
 
 void updateFilterInterval(unsigned int newInterval)
 {
-  sprintf(mqtt_message, "{\"filter_interval\": %d}", newInterval);
+  sprintf(mqtt_message, "{\"filter_interval\": %d, \"filter_duration\": %d}", newInterval, filter.durationMinutes);
   mqtt_client.publish(temperature_state_topic, mqtt_message);
   filter.intervalHours = newInterval;
 
@@ -110,7 +118,7 @@ void updateFilterInterval(unsigned int newInterval)
 
 void updateFilterDuration(unsigned int newDuration)
 {
-  sprintf(mqtt_message, "{\"filter_duration\": %d}", newDuration);
+  sprintf(mqtt_message, "{\"filter_interval\": %d, \"filter_duration\": %d}", filter.intervalHours, newDuration);
   mqtt_client.publish(temperature_state_topic, mqtt_message);
   filter.durationMinutes = newDuration;
 

@@ -39,7 +39,7 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length) {
        switchFilter(true);
        filter.mode = manual;
     }
-    else
+    else if (memcmp(payload, off_state, length) == 0) 
     {
        switchFilter(false);
        filter.mode = automatically;
@@ -87,10 +87,10 @@ void createHomeAssistantSensor()
   createNewSensor("Filter",          "running",     filter_state_topic,      "ui_filter_state",    "hotpot_temperature", device_name, manufacturer, model, model_id, "binary_sensor", "{{ value_json.filter }}");
 
   // Create Filter interval sensor
-  createNewSensor("Filter Interval", "temperature", temperature_state_topic, "ui_filter_interval", "hotpot_temperature", device_name, manufacturer, model, model_id, "sensor", "{{ value_json.filter_interval }}");
+  createNewSensor("Filter Interval", "duration",    temperature_state_topic, "ui_filter_interval", "hotpot_temperature", device_name, manufacturer, model, model_id, "sensor", "{{ value_json.filter_interval }}");
 
   // Create Filter duration sensor
-  createNewSensor("Filter Duration", "temperature", temperature_state_topic, "ui_filter_duration", "hotpot_temperature", device_name, manufacturer, model, model_id, "sensor", "{{ value_json.filter_duration }}");
+  // createNewSensor("Filter Duration", "duration",    temperature_state_topic, "ui_filter_duration", "hotpot_temperature", device_name, manufacturer, model, model_id, "sensor", "{{ value_json.filter_duration }}");
 
   mqtt_client.setBufferSize(256);
 
@@ -121,3 +121,33 @@ void connectMQTT()
    }
 }
 
+// void discoverFilterDuration()
+// {
+//   char payload[512];
+// 
+//   int n = snprintf(payload, sizeof(payload),
+//     "{"
+//       "\"name\":\"Hour\","
+//       "\"unique_id\":\"%s_hour\","
+//       "\"state_topic\":\"%s/hour/state\","
+//       "\"command_topic\":\"%s/hour/set\","
+//       "\"min\":1,\"max\":24,\"step\":1,\"mode\":\"slider\","
+//       "\"device\":{"
+//         "\"identifiers\":[\"%s\"],"
+//         "\"name\":\"%s\","
+//         "\"manufacturer\":\"%s\","
+//         "\"model\":\"%s\","
+//         "\"sw_version\":\"%s\""
+//       "}"
+//     "}",
+//     HA_ID, HA_ID, HA_ID, HA_ID, DEVICE_NAME, MANUFACTURER, MODEL, SW_VERSION
+//   );
+// 
+//   if (n <= 0 || n >= (int)sizeof(payload)) {
+//     // payload got truncated; increase buffer or shorten strings
+//     return;
+//   }
+// 
+//   mqtt.publish(TOPIC_NUM_CONFIG, payload, true);
+// 
+// }

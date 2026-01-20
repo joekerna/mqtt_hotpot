@@ -6,10 +6,11 @@ const char *config_suffix = "/config";
 
 // -----  Topics -----
 // Home Assistant
-const char *temperature_state_topic   = "homeassistant/sensor/sensor_hotpot/state";
-const char *fire_state_topic          = "homeassistant/binary_sensor/sensor_fire_hotpot/state";
-const char *freeze_state_topic        = "homeassistant/binary_sensor/sensor_freeze_hotpot/state";
-const char *filter_state_topic        = "homeassistant/binary_sensor/sensor_filter_hotpot/state";
+const char *temperature_state_topic      = "homeassistant/sensor/sensor_hotpot/state";
+const char *fire_state_topic             = "homeassistant/binary_sensor/sensor_fire_hotpot/state";
+const char *freeze_state_topic           = "homeassistant/binary_sensor/sensor_freeze_hotpot/state";
+const char *filter_state_topic           = "homeassistant/binary_sensor/sensor_filter_hotpot/state";
+const char *filter_parameter_state_topic = "homeassistant/sensor/sensor_filter_parameter/state";
 
 const char *availability_topic        = "hotpot/filter/available";
 const char *filter_switch_state_topic = "hotpot/filter/switch";
