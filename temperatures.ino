@@ -13,8 +13,8 @@ DallasTemperature sensors(&oneWire);
 
 
 const float fire_threshold    = 10.0;
-const float freeze_threshold  =  2.0;
-const float freeze_hysteresis =  1.0;
+const float freeze_threshold  =  1.5;
+const float freeze_hysteresis =  0.7;
 
 void initTemperatureSensors()
 {
@@ -34,20 +34,20 @@ void initTemperatureSensors()
 
 void fireTendency()
 {
-     // if (!(filter.state))
-     {
-	     // Tendency
-	     float temp_tendency = 0.0;
-	     temp_tendency = (temperatures.temp_rueck[0] - temperatures.temp_rueck[HISTORY_LENGTH-1]) / (HISTORY_LENGTH-1);
+      if (HISTORY_LENGTH <= 1) {
+          return;  // Skip tendency calculation
+      }
+      // Tendency
+      float temp_tendency = 0.0;
+      temp_tendency = (temperatures.temp_rueck[0] - temperatures.temp_rueck[HISTORY_LENGTH-1]) / (HISTORY_LENGTH-1);
 
-	     // Publish value to MQTT
-	     sprintf(mqtt_message, "{\"tendency\": %.2f}", temp_tendency);
-	     mqtt_client.publish(temperature_state_topic, mqtt_message, true);
+      // Publish value to MQTT
+      snprintf(mqtt_message, sizeof(mqtt_message), "{\"tendency\": %.2f}", temp_tendency);
+      // mqtt_client.publish(temperature_state_topic, mqtt_message, false);
 
-	     // Debug
-	     sprintf(mqtt_message, "Temp_0: %.1f, Temp_5: %.1f, Tendency: %.4f", temperatures.temp_rueck[0], temperatures.temp_rueck[HISTORY_LENGTH-1], temp_tendency);
-	     mqtt_client.publish(debug_topic, mqtt_message);
-     }
+      // Debug
+      snprintf(mqtt_message, sizeof(mqtt_message), "Temp_0: %.1f, Temp_5: %.1f, Tendency: %.4f", temperatures.temp_rueck[0], temperatures.temp_rueck[HISTORY_LENGTH-1], temp_tendency);
+      mqtt_client.publish(debug_topic, mqtt_message);
 }
 
 void updateTemperaturesFromSensor()
@@ -60,17 +60,16 @@ void updateTemperaturesFromSensor()
       sensors.requestTemperatures();
       newTempVor   = sensors.getTempCByIndex(0);
       newTempRueck = sensors.getTempCByIndex(1);
-      sprintf(mqtt_message, "0: %.2f  1: %.2f", newTempVor, newTempRueck);
-      mqtt_client.publish("hotpot/temperature", mqtt_message);
+
 
       // Errors?
-      if ( ((newTempVor != 85.0) && (newTempRueck != 85.0)) && ((newTempVor != -127.0) && (newTempRueck != -127.0)))
+      if ( ((newTempVor != DALLAS_SENSOR_CRC_ERROR) && (newTempRueck != DALLAS_SENSOR_CRC_ERROR)) && ((newTempVor != DALLAS_SENSOR_NOT_INITIALIZED) && (newTempRueck != DALLAS_SENSOR_NOT_INITIALIZED)))
       {
          break;
       }
       else
       {
-         sprintf(mqtt_message, "Error in temperature");
+         snprintf(mqtt_message, sizeof(mqtt_message), "Error in temperature");
          mqtt_client.publish(error_topic, mqtt_message);
          if ( i == 10-1)
          {
@@ -121,8 +120,13 @@ void updateTemperaturesToMQTT()
     
 
         // Publish temperatures
-        sprintf(mqtt_message, "{\"vorlauf\": %.1f, \"ruecklauf\": %.1f , \"difference\": %.1f}", temp_vor, temp_rueck, temperatures.temp_difference);
-        mqtt_client.publish(temperature_state_topic, mqtt_message);
+        snprintf(mqtt_message, sizeof(mqtt_message), "%.1f", temp_vor);
+        mqtt_client.publish(temperature_vorlauf_state_topic, mqtt_message, true);
+        snprintf(mqtt_message, sizeof(mqtt_message), "%.1f", temp_rueck);
+        mqtt_client.publish(temperature_ruecklauf_state_topic, mqtt_message, true);
+        snprintf(mqtt_message, sizeof(mqtt_message), "%.1f", temperatures.temp_difference);
+        mqtt_client.publish(temperature_difference_state_topic, mqtt_message, true);
+
         temperatures.temp_vor_last_transmitted   = temp_vor;
         temperatures.temp_rueck_last_transmitted = temp_rueck;
 
@@ -130,10 +134,6 @@ void updateTemperaturesToMQTT()
         temperatures.fire = temperatures.temp_difference > fire_threshold;
         updateBinarysensor(fire_state_topic, temperatures.fire);
 
-        // Update configuration
-        sprintf(mqtt_message, "{\"filter_interval\": %.1f, \"filter_duration\": %.1f}", filter.intervalHours, filter.durationMinutes);
-        mqtt_client.publish(temperature_state_topic, mqtt_message);
-        
    
         // Calculate tendency
         fireTendency();
@@ -141,7 +141,7 @@ void updateTemperaturesToMQTT()
         // Publish Frost state
         if (temperatures.frost)
         {
-           if ((temp_rueck > (freeze_threshold + freeze_hysteresis)) & (temp_vor > (freeze_threshold + freeze_hysteresis)))
+           if ((temp_rueck > (freeze_threshold + freeze_hysteresis)) && (temp_vor > (freeze_threshold + freeze_hysteresis)))
 	   {
                temperatures.frost = false;
            }
@@ -149,7 +149,7 @@ void updateTemperaturesToMQTT()
         }
         else
         {
-           if ((temp_rueck < freeze_threshold) | (temp_vor < freeze_threshold))
+           if ((temp_rueck < freeze_threshold) || (temp_vor < freeze_threshold))
 	   {
                temperatures.frost = true;
            }
@@ -167,7 +167,7 @@ void setTemperatureChangeThreshold(float newThreshold)
 
 void setUpdateRate(unsigned int newUpdateRate)
 {
-   sprintf(mqtt_message, "New Update Rate: %d", newUpdateRate);
+   snprintf(mqtt_message, sizeof(mqtt_message), "New Update Rate: %d", newUpdateRate);
    mqtt_client.publish(debug_topic, mqtt_message);
    temperatures.update_rate = newUpdateRate;
 }
