@@ -14,8 +14,14 @@ void initFilter()
      filter.intervalHours   = preferences_filter.getUInt("filterInterval",  6);
      filter.durationMinutes = preferences_filter.getUInt("filterDuration", 30);
   preferences_filter.end();
+
+  // Update MQTT sensor
+  snprintf(mqtt_message, sizeof(mqtt_message), "%d", filter.intervalHours);
+  mqtt_client.publish(filter_interval_state_topic, mqtt_message, true);
+  snprintf(mqtt_message, sizeof(mqtt_message), "%d", filter.durationMinutes);
+  mqtt_client.publish(filter_duration_state_topic, mqtt_message, true);
   
-  filter.mode = automatically;
+  changeFilterMode(automatically);
 
   sprintf(mqtt_message, "Init: state: %d, onTime: %lu offTime: %lu", filter.state, filter.onTime, filter.offTime);
   mqtt_client.publish(debug_topic, mqtt_message);
@@ -28,11 +34,11 @@ void publishFilterState(bool state)
 {
     if (state)
     {
-	mqtt_client.publish(filter_switch_state_topic, "ON", false);
+	mqtt_client.publish(filter_state_topic, "ON", false);
     }
     else
     {
-        mqtt_client.publish(filter_switch_state_topic, "OFF", false);
+        mqtt_client.publish(filter_state_topic, "OFF", false);
     }
 }
 
@@ -81,14 +87,17 @@ void filterControl()
     if (filter.state)
     {
       // Turn off after fixed time and if no longer freezing
-      if (((unsigned long)((now - filter.onTime)/60) >= (unsigned long)filter.durationMinutes) &&
-          (!(temperatures.frost))                                                    &&
-          (filter.mode == automatically))
+      if ( (((unsigned long)((now - filter.onTime)/60) >= (unsigned long)filter.durationMinutes) &&
+           (!(temperatures.frost))                                                    &&
+           (filter.mode == automatically))                                                           ||
+           (filter.mode == frost) && (!(temperatures.frost))
+         )
       {
 	// sprintf(mqtt_message, "Turning off: 
         sprintf(mqtt_message, "Filter control: state: %d, onTime: %lu offTime: %lu interval: %u duration %u current duration: %u", filter.state, filter.onTime, filter.offTime, filter.intervalHours, filter.durationMinutes,
                     (unsigned int)((now - filter.onTime)/60));
         mqtt_client.publish(debug_topic, mqtt_message);
+        changeFilterMode(automatically);
         switchFilter(false);
       }
    }
@@ -98,6 +107,10 @@ void filterControl()
       if (((unsigned long)((now - filter.offTime)/60/60) >= (unsigned long)filter.intervalHours) ||
           (temperatures.frost))
       {
+        if (temperatures.frost)
+        {
+           changeFilterMode(frost);
+        }
         switchFilter(true);
       }
   }
@@ -106,8 +119,9 @@ void filterControl()
 
 void updateFilterInterval(unsigned int newInterval)
 {
-  sprintf(mqtt_message, "{\"filter_interval\": %d, \"filter_duration\": %d}", newInterval, filter.durationMinutes);
-  mqtt_client.publish(temperature_state_topic, mqtt_message);
+  snprintf(mqtt_message, sizeof(mqtt_message), "%d", newInterval);
+  mqtt_client.publish(filter_interval_state_topic, mqtt_message, true);
+
   filter.intervalHours = newInterval;
 
   // Store new value to flash
@@ -118,8 +132,9 @@ void updateFilterInterval(unsigned int newInterval)
 
 void updateFilterDuration(unsigned int newDuration)
 {
-  sprintf(mqtt_message, "{\"filter_interval\": %d, \"filter_duration\": %d}", filter.intervalHours, newDuration);
-  mqtt_client.publish(temperature_state_topic, mqtt_message);
+  snprintf(mqtt_message, sizeof(mqtt_message), "%d", newDuration);
+  mqtt_client.publish(filter_duration_state_topic, mqtt_message, true);
+
   filter.durationMinutes = newDuration;
 
   // Store new value to flash
@@ -128,3 +143,14 @@ void updateFilterDuration(unsigned int newDuration)
   preferences_filter.end();
 }
 
+void changeFilterMode(mode_e newMode)
+{
+    filter.mode = newMode;
+    const char *payload = "unknown";
+    switch (newMode) {
+      case manual: payload = "manual"; break;
+      case automatically: payload = "automatically"; break;
+      case frost: payload = "frost"; break;
+    }
+    mqtt_client.publish(filter_mode_state_topic, payload, true);
+}
