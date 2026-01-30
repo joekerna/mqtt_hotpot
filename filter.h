@@ -2,6 +2,7 @@
 #define FILTER_H
 
 #include "helper.h"
+#include "mqtt.h"
 
 // Filter pump relay
 #define FILTER_RELAY 16
@@ -12,7 +13,8 @@
 
 enum mode_e {
   manual,
-  automatically
+  automatically,
+  frost
 };
 
 typedef struct {
@@ -27,6 +29,7 @@ typedef struct {
 filter_t filter;
 
 void switchFilter(bool state);
+void changeFilterMode(mode_e newMode);
 void updateFilterInterval(unsigned int newInterval);
 void updateFilterDuration(unsigned int newDuration);
 void publishFilterState(bool state);
