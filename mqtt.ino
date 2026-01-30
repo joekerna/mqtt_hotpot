@@ -4,6 +4,24 @@
 #include "temperatures.h"
 #include <string.h>
 
+void initTopics()
+{
+  snprintf(filter_duration_set_topic,          sizeof(filter_duration_set_topic),          "%s/filter_duration/set", unique_id);
+  snprintf(filter_duration_state_topic,        sizeof(filter_duration_state_topic),        "%s/filter_duration/state", unique_id);
+  snprintf(filter_interval_set_topic,          sizeof(filter_interval_set_topic),          "%s/filter_interval/set", unique_id);
+  snprintf(filter_interval_state_topic,        sizeof(filter_interval_state_topic),        "%s/filter_interval/state", unique_id);
+  snprintf(filter_set_topic,                   sizeof(filter_set_topic),                   "%s/filter/set", unique_id);
+  snprintf(filter_state_topic,                 sizeof(filter_state_topic),                 "%s/filter/state", unique_id);
+  snprintf(filter_mode_state_topic,            sizeof(filter_mode_state_topic),            "%s/filter_mode/state", unique_id);
+
+  snprintf(fire_state_topic,                   sizeof(fire_state_topic),                   "%s/fire/state", unique_id);
+  snprintf(freeze_state_topic,                 sizeof(freeze_state_topic),                 "%s/freeze/state", unique_id);
+
+  snprintf(temperature_vorlauf_state_topic,    sizeof(temperature_vorlauf_state_topic),    "%s/temperature_vorlauf/state", unique_id);
+  snprintf(temperature_ruecklauf_state_topic,  sizeof(temperature_ruecklauf_state_topic),  "%s/temperature_ruecklauf/state", unique_id);
+  snprintf(temperature_difference_state_topic, sizeof(temperature_difference_state_topic), "%s/temperature_difference/state", unique_id);
+}
+
 void mqtt_callback(char *topic, byte *payload, unsigned int length) {
   if (strcmp(topic,temp_threshold_topic)==0)
   {
@@ -14,12 +32,12 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length) {
      char *endptr;
      setUpdateRate((unsigned int)strtoul((const char *)(payload), &endptr, 10));
   }
-  else if (strcmp(topic,filter_duration_topic)==0)
+  else if (strcmp(topic,filter_duration_set_topic)==0)
   {
      char *endptr;
      updateFilterDuration((unsigned int)strtoul((const char *)(payload), &endptr, 10));
   }
-  else if (strcmp(topic,filter_interval_topic)==0)
+  else if (strcmp(topic,filter_interval_set_topic)==0)
   {
      char *endptr;
      updateFilterInterval((unsigned int)strtoul((const char *)(payload), &endptr, 10));
@@ -29,7 +47,7 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length) {
     mqtt_client.publish(debug_topic, "Temperature update received");
     float outside_temperature = (float)atof((const char *)(payload));
   }
-  else if (strcmp(topic,filter_switch_set_topic)==0)
+  else if (strcmp(topic,filter_set_topic)==0)
   {
     const char *on_state  = "ON";
     const char *off_state = "OFF";
@@ -37,12 +55,12 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length) {
     if (memcmp(payload, on_state, length) == 0) 
     {
        switchFilter(true);
-       filter.mode = manual;
+       changeFilterMode(manual);
     }
     else if (memcmp(payload, off_state, length) == 0) 
     {
        switchFilter(false);
-       filter.mode = automatically;
+       changeFilterMode(automatically);
     }
   }
 
@@ -66,31 +84,31 @@ void createHomeAssistantSensor()
   mqtt_client.setBufferSize(512);
 
   // Create Vorlauf Sensor
-  createNewSensor("Vorlauf",         "temperature", temperature_state_topic, "ui_vor",             "hotpot_temperature", device_name, manufacturer, model, model_id, "sensor", "{{ value_json.vorlauf }}");
+  discoverTemperatureVorlauf();
 
   // Create Ruecklauf Sensor
-  createNewSensor("Rücklauf",        "temperature", temperature_state_topic, "ui_rueck",           "hotpot_temperature", device_name, manufacturer, model, model_id, "sensor", "{{ value_json.ruecklauf }}");
+  discoverTemperatureRuecklauf();
 
   // Create Difference Sensor
-  createNewSensor("Differenz",       "temperature", temperature_state_topic, "ui_diff",            "hotpot_temperature", device_name, manufacturer, model, model_id, "sensor", "{{ value_json.difference }}");
+  discoverTemperatureDifference();
 
   // Create Tendency Sensor
-  createNewSensor("Tendenz",         "temperature", temperature_state_topic, "ui_tendency",        "hotpot_temperature", device_name, manufacturer, model, model_id, "sensor", "{{ value_json.tendency }}");
 
   // Create Fire state Sensor
-  createNewSensor("Feuer",           "heat",        fire_state_topic,        "ui_fire_state",      "hotpot_temperature", device_name, manufacturer, model, model_id, "binary_sensor", "{{ value_json.fire }}");
+  discoverFireState();
 
   // Create Freeze state Sensor      
-  createNewSensor("Frost",           "cold",        freeze_state_topic,      "ui_freeze_state",    "hotpot_temperature", device_name, manufacturer, model, model_id, "binary_sensor", "{{ value_json.freeze }}");
+  discoverFreezeState();
 
   // Create Filter state Sensor      
-  createNewSensor("Filter",          "running",     filter_state_topic,      "ui_filter_state",    "hotpot_temperature", device_name, manufacturer, model, model_id, "binary_sensor", "{{ value_json.filter }}");
+  discoverFilterSwitch();
+  discoverFilterMode();
 
   // Create Filter interval sensor
-  createNewSensor("Filter Interval", "duration",    temperature_state_topic, "ui_filter_interval", "hotpot_temperature", device_name, manufacturer, model, model_id, "sensor", "{{ value_json.filter_interval }}");
+  discoverFilterInterval();
 
   // Create Filter duration sensor
-  // createNewSensor("Filter Duration", "duration",    temperature_state_topic, "ui_filter_duration", "hotpot_temperature", device_name, manufacturer, model, model_id, "sensor", "{{ value_json.filter_duration }}");
+  discoverFilterDuration();
 
   mqtt_client.setBufferSize(256);
 
@@ -108,11 +126,13 @@ void connectMQTT()
       if (mqtt_client.connect(client_id.c_str(), mqtt_username, mqtt_password)) {
         mqtt_client.subscribe(temp_threshold_topic);
         mqtt_client.subscribe("hotpot/filter");
-        mqtt_client.subscribe(filter_duration_topic);
-        mqtt_client.subscribe(filter_interval_topic);
         mqtt_client.subscribe("hotpot/filter/switch");
-        mqtt_client.subscribe(filter_switch_set_topic);
         mqtt_client.subscribe(temp_update_rate_topic);
+
+        // All set topics
+        snprintf(topic, sizeof(topic), "%s/+/set", base_topic, unique_id);
+        mqtt_client.subscribe(topic);
+
         mqtt_set_availability(true);
       } else {
         delay(2000);
@@ -121,33 +141,342 @@ void connectMQTT()
    }
 }
 
-// void discoverFilterDuration()
-// {
-//   char payload[512];
-// 
-//   int n = snprintf(payload, sizeof(payload),
-//     "{"
-//       "\"name\":\"Hour\","
-//       "\"unique_id\":\"%s_hour\","
-//       "\"state_topic\":\"%s/hour/state\","
-//       "\"command_topic\":\"%s/hour/set\","
-//       "\"min\":1,\"max\":24,\"step\":1,\"mode\":\"slider\","
-//       "\"device\":{"
-//         "\"identifiers\":[\"%s\"],"
-//         "\"name\":\"%s\","
-//         "\"manufacturer\":\"%s\","
-//         "\"model\":\"%s\","
-//         "\"sw_version\":\"%s\""
-//       "}"
-//     "}",
-//     HA_ID, HA_ID, HA_ID, HA_ID, DEVICE_NAME, MANUFACTURER, MODEL, SW_VERSION
-//   );
-// 
-//   if (n <= 0 || n >= (int)sizeof(payload)) {
-//     // payload got truncated; increase buffer or shorten strings
-//     return;
-//   }
-// 
-//   mqtt.publish(TOPIC_NUM_CONFIG, payload, true);
-// 
-// }
+void discoverFilterDuration()
+{
+  char payload[512];
+
+  int n = snprintf(payload, sizeof(payload),
+    "{"
+      "\"name\":\"Filter Duration\","
+      "\"unique_id\":\"%s_filter_duration\","
+      "\"state_topic\":\"%s\","
+      "\"command_topic\":\"%s\","
+      "\"min\":1,\"max\":60,\"step\":1,\"mode\":\"slider\","
+      "\"unit_of_measurement\":\"min\","
+      "\"icon\":\"mdi:timer\","
+      "\"device\":{"
+        "\"identifiers\":[\"%s\"],"
+        "\"name\":\"%s\","
+        "\"manufacturer\":\"%s\","
+        "\"model\":\"%s\","
+        "\"sw_version\":\"%s\""
+      "}"
+    "}",
+    unique_id, filter_duration_state_topic, filter_duration_set_topic,
+    unique_id, device_name, manufacturer, model, model_id
+  );
+
+  if (n <= 0 || n >= (int)sizeof(payload)) {
+    // payload got truncated; increase buffer or shorten strings
+    return;
+  }
+
+  snprintf(topic, sizeof(topic),
+           "%s/number/%s/filter_duration/%s",
+           topic_prefix, unique_id, config_suffix);
+
+  mqtt_client.publish(topic, payload, true);
+
+}
+
+void discoverFilterInterval()
+{
+  char payload[512];
+
+  int n = snprintf(payload, sizeof(payload),
+    "{"
+      "\"name\":\"Filter Interval\","
+      "\"unique_id\":\"%s_filter_interval\","
+      "\"state_topic\":\"%s\","
+      "\"command_topic\":\"%s\","
+      "\"min\":1,\"max\":48,\"step\":1,\"mode\":\"slider\","
+      "\"unit_of_measurement\":\"h\","
+      "\"icon\":\"mdi:timer\","
+      "\"device\":{"
+        "\"identifiers\":[\"%s\"],"
+        "\"name\":\"%s\","
+        "\"manufacturer\":\"%s\","
+        "\"model\":\"%s\","
+        "\"sw_version\":\"%s\""
+      "}"
+    "}",
+    unique_id, filter_interval_state_topic, filter_interval_set_topic,
+    unique_id, device_name, manufacturer, model, model_id
+  );
+
+  if (n <= 0 || n >= (int)sizeof(payload)) {
+    // payload got truncated; increase buffer or shorten strings
+    return;
+  }
+
+  snprintf(topic, sizeof(topic),
+           "%s/number/%s/filter_interval/$s",
+           topic_prefix, unique_id, config_suffix);
+
+  mqtt_client.publish(topic, payload, true);
+
+}
+
+void discoverTemperatureVorlauf()
+{
+  char payload[512];
+
+  int n = snprintf(payload, sizeof(payload),
+    "{"
+      "\"name\":\"Vorlauftemperatur\","
+      "\"unique_id\":\"%s_temperature_vorlauf\","
+      "\"state_topic\":\"%s\","
+      "\"device_class\":\"temperature\","
+      "\"unit_of_measurement\":\"°C\","
+      "\"state_class\":\"measurement\","
+      "\"value_template\":\"{{ value | float }}\","
+      "\"device\":{"
+        "\"identifiers\":[\"%s\"],"
+        "\"name\":\"%s\","
+        "\"manufacturer\":\"%s\","
+        "\"model\":\"%s\","
+        "\"sw_version\":\"%s\""
+      "}"
+    "}",
+    unique_id, temperature_vorlauf_state_topic,
+    unique_id, device_name, manufacturer, model, model_id
+  );
+
+  if (n <= 0 || n >= (int)sizeof(payload)) {
+    // payload got truncated; increase buffer or shorten strings
+    return;
+  }
+
+  snprintf(topic, sizeof(topic),
+           "%s/sensor/%s/temperature_vorlauf/%s",
+           topic_prefix, unique_id, config_suffix);
+
+  mqtt_client.publish(topic, payload, true);
+
+}
+
+void discoverTemperatureRuecklauf()
+{
+  char payload[512];
+
+  int n = snprintf(payload, sizeof(payload),
+    "{"
+      "\"name\":\"Rücklauftemperatur\","
+      "\"unique_id\":\"%s_temperature_ruecklauf\","
+      "\"state_topic\":\"%s\","
+      "\"device_class\":\"temperature\","
+      "\"unit_of_measurement\":\"°C\","
+      "\"state_class\":\"measurement\","
+      "\"value_template\":\"{{ value | float }}\","
+      "\"device\":{"
+        "\"identifiers\":[\"%s\"],"
+        "\"name\":\"%s\","
+        "\"manufacturer\":\"%s\","
+        "\"model\":\"%s\","
+        "\"sw_version\":\"%s\""
+      "}"
+    "}",
+    unique_id, temperature_ruecklauf_state_topic,
+    unique_id, device_name, manufacturer, model, model_id
+  );
+
+  if (n <= 0 || n >= (int)sizeof(payload)) {
+    // payload got truncated; increase buffer or shorten strings
+    return;
+  }
+
+  snprintf(topic, sizeof(topic),
+           "%s/sensor/%s/temperature_ruecklauf/%s",
+           topic_prefix, unique_id, config_suffix);
+
+  mqtt_client.publish(topic, payload, true);
+
+}
+
+void discoverTemperatureDifference()
+{
+  char payload[512];
+
+  int n = snprintf(payload, sizeof(payload),
+    "{"
+      "\"name\":\"Temperaturdifferenz\","
+      "\"unique_id\":\"%s_temperature_difference\","
+      "\"state_topic\":\"%s\","
+      "\"device_class\":\"temperature\","
+      "\"unit_of_measurement\":\"°C\","
+      "\"state_class\":\"measurement\","
+      "\"value_template\":\"{{ value | float }}\","
+      "\"device\":{"
+        "\"identifiers\":[\"%s\"],"
+        "\"name\":\"%s\","
+        "\"manufacturer\":\"%s\","
+        "\"model\":\"%s\","
+        "\"sw_version\":\"%s\""
+      "}"
+    "}",
+    unique_id, temperature_difference_state_topic,
+    unique_id, device_name, manufacturer, model, model_id
+  );
+
+  if (n <= 0 || n >= (int)sizeof(payload)) {
+    // payload got truncated; increase buffer or shorten strings
+    return;
+  }
+
+  snprintf(topic, sizeof(topic),
+           "%s/sensor/%s/temperature_difference/%s",
+           topic_prefix, unique_id, config_suffix);
+
+  mqtt_client.publish(topic, payload, true);
+
+}
+
+void discoverFilterSwitch()
+{
+  char payload[512];
+
+  int n = snprintf(payload, sizeof(payload),
+    "{"
+      "\"name\":\"Filter\","
+      "\"unique_id\":\"%s_filter\","
+      "\"state_topic\":\"%s\","
+      "\"command_topic\":\"%s\","
+      "\"payload_on\":\"ON\","
+      "\"payload_off\":\"OFF\","
+      "\"icon\":\"mdi:air-filter\","
+      "\"device\":{"
+        "\"identifiers\":[\"%s\"],"
+        "\"name\":\"%s\","
+        "\"manufacturer\":\"%s\","
+        "\"model\":\"%s\","
+        "\"sw_version\":\"%s\""
+      "}"
+    "}",
+    unique_id, filter_state_topic, filter_set_topic,
+    unique_id, device_name, manufacturer, model, model_id
+  );
+
+  if (n <= 0 || n >= (int)sizeof(payload)) {
+    // payload got truncated; increase buffer or shorten strings
+    return;
+  }
+
+  snprintf(topic, sizeof(topic),
+           "%s/switch/%s/filter/%s",
+           topic_prefix, unique_id, config_suffix);
+
+  mqtt_client.publish(topic, payload, true);
+
+}
+
+void discoverFireState()
+{
+  char payload[512];
+
+  int n = snprintf(payload, sizeof(payload),
+    "{"
+      "\"name\":\"Feuer\","
+      "\"unique_id\":\"%s_fire\","
+      "\"state_topic\":\"%s\","
+      "\"payload_on\":\"ON\","
+      "\"payload_off\":\"OFF\","
+      "\"device_class\":\"heat\","
+      "\"icon\":\"mdi:fire\","
+      "\"device\":{"
+        "\"identifiers\":[\"%s\"],"
+        "\"name\":\"%s\","
+        "\"manufacturer\":\"%s\","
+        "\"model\":\"%s\","
+        "\"sw_version\":\"%s\""
+      "}"
+    "}",
+    unique_id, fire_state_topic,
+    unique_id, device_name, manufacturer, model, model_id
+  );
+
+  if (n <= 0 || n >= (int)sizeof(payload)) {
+    // payload got truncated; increase buffer or shorten strings
+    return;
+  }
+
+  snprintf(topic, sizeof(topic),
+           "%s/binary_sensor/%s/fire/%s",
+           topic_prefix, unique_id);
+
+  mqtt_client.publish(topic, payload, true);
+
+}
+
+void discoverFreezeState()
+{
+  char payload[512];
+
+  int n = snprintf(payload, sizeof(payload),
+    "{"
+      "\"name\":\"Frost\","
+      "\"unique_id\":\"%s_freeze\","
+      "\"state_topic\":\"%s\","
+      "\"payload_on\":\"ON\","
+      "\"payload_off\":\"OFF\","
+      "\"device_class\":\"heat\","
+      "\"icon\":\"mdi:snowflake-thermometer\","
+      "\"device\":{"
+        "\"identifiers\":[\"%s\"],"
+        "\"name\":\"%s\","
+        "\"manufacturer\":\"%s\","
+        "\"model\":\"%s\","
+        "\"sw_version\":\"%s\""
+      "}"
+    "}",
+    unique_id, freeze_state_topic,
+    unique_id, device_name, manufacturer, model, model_id
+  );
+
+  if (n <= 0 || n >= (int)sizeof(payload)) {
+    // payload got truncated; increase buffer or shorten strings
+    return;
+  }
+
+  snprintf(topic, sizeof(topic),
+           "%s/binary_sensor/%s/freeze/%s",
+           topic_prefix, unique_id, config_suffix);
+
+  mqtt_client.publish(topic, payload, true);
+
+}
+
+void discoverFilterMode()
+{
+  char payload[512];
+
+  int n = snprintf(payload, sizeof(payload),
+    "{"
+      "\"name\":\"Filter Mode\","
+      "\"unique_id\":\"%s_filter_mode\","
+      "\"state_topic\":\"%s\","
+      "\"icon\":\"mdi:air-filter\","
+      "\"device\":{"
+        "\"identifiers\":[\"%s\"],"
+        "\"name\":\"%s\","
+        "\"manufacturer\":\"%s\","
+        "\"model\":\"%s\","
+        "\"sw_version\":\"%s\""
+      "}"
+    "}",
+    unique_id, filter_mode_state_topic,
+    unique_id, device_name, manufacturer, model, model_id
+  );
+
+  if (n <= 0 || n >= (int)sizeof(payload)) {
+    // payload got truncated; increase buffer or shorten strings
+    return;
+  }
+
+  snprintf(topic, sizeof(topic),
+           "%s/sensor/%s/filter_mode/%s",
+           topic_prefix, unique_id, config_suffix);
+
+  mqtt_client.publish(topic, payload, true);
+
+}
+

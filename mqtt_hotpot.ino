@@ -16,7 +16,7 @@ PubSubClient mqtt_client(espClient);
 
 // MQTT Topics
 char mqtt_message[512];
-char topic[60];
+char topic[128];
 
 // Bluetooth
 // #if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
@@ -89,6 +89,7 @@ void setup(void) {
 
 // -------------------------------------------------------------------------
   // Connect to MQTT broker
+  initTopics();
   connectMQTT();
 // -------------------------------------------------------------------------
 
@@ -168,37 +169,6 @@ void connectWifi()
   {
     Serial.println("Wifi Connect failed...");
   }
-}
-
-
-void createNewSensor(const char *name,
-                     const char *device_class, 
-                     const char *state_topic, 
-                     const char *unique_id, 
-                     const char *identifiers, 
-                     const char *device_name, 
-                     const char *manufacturer, 
-                     const char *model, 
-                     const char *model_id,
-                     const char *sensor_type,
-                     const char *value_template)
-{
-  // Create MQTT payload
-  if (sensor_type == "sensor")
-  {
-     sprintf(mqtt_message, 
-             "{\"name\": \"%s\", \"device_class\": \"%s\", \"state_topic\": \"%s\", \"unit_of_measurement\": \"°C\", \"value_template\": \"%s\", \"unique_id\": \"%s\", \"device\": {\"identifiers\": [\"%s\"], \"name\": \"%s\", \"manufacturer\": \"%s\", \"model\": \"%s\", \"model_id\": \"%s\"} }",\
-             name, device_class, state_topic, value_template, unique_id, identifiers, device_name, manufacturer, model, model_id);
-  } else {
-     sprintf(mqtt_message, 
-             "{\"name\": \"%s\", \"device_class\": \"%s\", \"state_topic\": \"%s\", \"unique_id\": \"%s\", \"device\": {\"identifiers\": [\"%s\"], \"name\": \"%s\", \"manufacturer\": \"%s\", \"model\": \"%s\", \"model_id\": \"%s\"} }",\
-             name, device_class, state_topic, unique_id, identifiers, device_name, manufacturer, model, model_id);
-  }
-  // Create MQTT topic
-  sprintf(topic, "%s/%s/%s/config", topic_prefix, sensor_type, unique_id);
-
-  // Publish
-  mqtt_client.publish(topic, mqtt_message, true);
 }
 
 void updateBinarysensor(const char* topic, bool state)

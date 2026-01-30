@@ -6,6 +6,10 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 
+// Dallas Temperature sensor error codes
+const float DALLAS_SENSOR_CRC_ERROR = 85.0;        // CRC error / invalid reading
+const float DALLAS_SENSOR_NOT_INITIALIZED = -127.0; // Sensor not read or no device found
+
 // Onewire Temperature sensors
 // #define ONE_WIRE_BUS D4  // ESP8266
 #define ONE_WIRE_BUS 15 // ESP32
