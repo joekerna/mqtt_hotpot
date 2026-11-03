@@ -189,7 +189,7 @@ void discoverFilterInterval()
       "\"unique_id\":\"%s_filter_interval\","
       "\"state_topic\":\"%s\","
       "\"command_topic\":\"%s\","
-      "\"min\":1,\"max\":48,\"step\":1,\"mode\":\"slider\","
+      "\"min\":1,\"max\":168,\"step\":1,\"mode\":\"slider\","
       "\"unit_of_measurement\":\"h\","
       "\"icon\":\"mdi:timer\","
       "\"device\":{"
@@ -210,7 +210,7 @@ void discoverFilterInterval()
   }
 
   snprintf(topic, sizeof(topic),
-           "%s/number/%s/filter_interval/$s",
+           "%s/number/%s/filter_interval/%s",
            topic_prefix, unique_id, config_suffix);
 
   mqtt_client.publish(topic, payload, true);
@@ -401,7 +401,7 @@ void discoverFireState()
 
   snprintf(topic, sizeof(topic),
            "%s/binary_sensor/%s/fire/%s",
-           topic_prefix, unique_id);
+           topic_prefix, unique_id, config_suffix);
 
   mqtt_client.publish(topic, payload, true);
 
