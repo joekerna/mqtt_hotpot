@@ -27,6 +27,7 @@ void initFilter()
   mqtt_client.publish(debug_topic, mqtt_message);
 
   pinMode(FILTER_RELAY, OUTPUT);
+  digitalWrite(FILTER_RELAY, filter.state ? HIGH : LOW);
 
 }
 
@@ -119,7 +120,14 @@ void filterControl()
 
 void updateFilterInterval(unsigned int newInterval)
 {
-  snprintf(mqtt_message, sizeof(mqtt_message), "%d", newInterval);
+  if ((newInterval < 1) || (newInterval > 168))
+  {
+    snprintf(mqtt_message, sizeof(mqtt_message), "Invalid filter interval: %u (allowed: 1-168 h)", newInterval);
+    mqtt_client.publish(error_topic, mqtt_message);
+    return;
+  }
+
+  snprintf(mqtt_message, sizeof(mqtt_message), "%u", newInterval);
   mqtt_client.publish(filter_interval_state_topic, mqtt_message, true);
 
   filter.intervalHours = newInterval;
@@ -132,7 +140,14 @@ void updateFilterInterval(unsigned int newInterval)
 
 void updateFilterDuration(unsigned int newDuration)
 {
-  snprintf(mqtt_message, sizeof(mqtt_message), "%d", newDuration);
+  if ((newDuration < 1) || (newDuration > 60))
+  {
+    snprintf(mqtt_message, sizeof(mqtt_message), "Invalid filter duration: %u (allowed: 1-60 min)", newDuration);
+    mqtt_client.publish(error_topic, mqtt_message);
+    return;
+  }
+
+  snprintf(mqtt_message, sizeof(mqtt_message), "%u", newDuration);
   mqtt_client.publish(filter_duration_state_topic, mqtt_message, true);
 
   filter.durationMinutes = newDuration;
