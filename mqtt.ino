@@ -20,44 +20,93 @@ void initTopics()
   snprintf(temperature_vorlauf_state_topic,    sizeof(temperature_vorlauf_state_topic),    "%s/temperature_vorlauf/state", unique_id);
   snprintf(temperature_ruecklauf_state_topic,  sizeof(temperature_ruecklauf_state_topic),  "%s/temperature_ruecklauf/state", unique_id);
   snprintf(temperature_difference_state_topic, sizeof(temperature_difference_state_topic), "%s/temperature_difference/state", unique_id);
+  snprintf(temperature_status_state_topic, sizeof(temperature_status_state_topic), "%s/temperature_status/state", unique_id);
+}
+
+// Publish an error for a malformed MQTT payload
+void publishParseError(const char *topic)
+{
+  snprintf(mqtt_message, sizeof(mqtt_message), "Invalid payload on topic: %s", topic);
+  mqtt_client.publish(error_topic, mqtt_message);
+}
+
+// Parse a numeric payload (NUL-terminated local buffer)
+bool parseNumericPayload(const char *buf, const char *topic, double *out)
+{
+  char *endptr;
+  *out = strtod(buf, &endptr);
+  if ((endptr == buf) || (*endptr != '\0'))
+  {
+    publishParseError(topic);
+    return false;
+  }
+  return true;
+}
+
+// Parse an unsigned integer payload (NUL-terminated local buffer)
+bool parseUnsignedPayload(const char *buf, const char *topic, unsigned int *out)
+{
+  double value;
+  if (!parseNumericPayload(buf, topic, &value))
+    return false;
+  if ((value < 0.0) || (value >= 4294967296.0))
+  {
+    publishParseError(topic);
+    return false;
+  }
+  *out = (unsigned int)value;
+  return true;
 }
 
 void mqtt_callback(char *topic, byte *payload, unsigned int length) {
+  // The MQTT payload is not NUL-terminated, so copy it into a local,
+  // length-capped, NUL-terminated buffer before parsing it
+  char buf[32];
+  uint16_t len = (length < sizeof(buf) - 1) ? (uint16_t)length : (uint16_t)(sizeof(buf) - 1);
+  memcpy(buf, payload, len);
+  buf[len] = '\0';
+
   if (strcmp(topic,temp_threshold_topic)==0)
   {
-     setTemperatureChangeThreshold((float)atof((const char *)(payload)));
+     double value;
+     if (parseNumericPayload(buf, topic, &value))
+        setTemperatureChangeThreshold((float)value);
   }
   else if (strcmp(topic,temp_update_rate_topic)==0)
   {
-     char *endptr;
-     setUpdateRate((unsigned int)strtoul((const char *)(payload), &endptr, 10));
+     unsigned int value;
+     if (parseUnsignedPayload(buf, topic, &value))
+        setUpdateRate(value);
   }
   else if (strcmp(topic,filter_duration_set_topic)==0)
   {
-     char *endptr;
-     updateFilterDuration((unsigned int)strtoul((const char *)(payload), &endptr, 10));
+     unsigned int value;
+     if (parseUnsignedPayload(buf, topic, &value))
+        updateFilterDuration(value);
   }
   else if (strcmp(topic,filter_interval_set_topic)==0)
   {
-     char *endptr;
-     updateFilterInterval((unsigned int)strtoul((const char *)(payload), &endptr, 10));
+     unsigned int value;
+     if (parseUnsignedPayload(buf, topic, &value))
+        updateFilterInterval(value);
   }
   else if (strcmp(topic, outside_temperature_topic) == 0)
   {
-    mqtt_client.publish(debug_topic, "Temperature update received");
-    float outside_temperature = (float)atof((const char *)(payload));
+     double value;
+     if (parseNumericPayload(buf, topic, &value))
+     {
+        snprintf(mqtt_message, sizeof(mqtt_message), "Temperature update received: %.2f", value);
+        mqtt_client.publish(debug_topic, mqtt_message);
+     }
   }
   else if (strcmp(topic,filter_set_topic)==0)
   {
-    const char *on_state  = "ON";
-    const char *off_state = "OFF";
-
-    if (memcmp(payload, on_state, length) == 0) 
+    if (strcmp(buf, "ON") == 0)
     {
        switchFilter(true);
        changeFilterMode(manual);
     }
-    else if (memcmp(payload, off_state, length) == 0) 
+    else if (strcmp(buf, "OFF") == 0)
     {
        switchFilter(false);
        changeFilterMode(automatically);
@@ -70,11 +119,11 @@ void mqtt_callback(char *topic, byte *payload, unsigned int length) {
 void mqtt_set_availability (bool state) {
     if (state)
     {
-	mqtt_client.publish(availability_topic, "online");
+	mqtt_client.publish(availability_topic, "online", true);
     }
     else
     {
-	mqtt_client.publish(availability_topic, "offline");
+	mqtt_client.publish(availability_topic, "offline", true);
     }
 }
 
@@ -103,6 +152,7 @@ void createHomeAssistantSensor()
   // Create Filter state Sensor      
   discoverFilterSwitch();
   discoverFilterMode();
+  discoverTemperatureStatus();
 
   // Create Filter interval sensor
   discoverFilterInterval();
@@ -119,21 +169,27 @@ void connectMQTT()
    String client_id = "hotpot_mqtt-client";
     mqtt_client.setServer(mqtt_broker, mqtt_port);
     mqtt_client.setCallback(mqtt_callback);
+    // Longer keepalive so brief WiFi hiccups / blocking waits don't drop the session
+    mqtt_client.setKeepAlive(60);
    if (WiFi.status() == WL_CONNECTED)
    {
     if (!mqtt_client.connected()) {
       Serial.println("Connecting to MQTT broker ...");
+      //if (mqtt_client.connect(client_id.c_str(), mqtt_username, mqtt_password,
+      //                        availability_topic, 1, true, "offline")) {
       if (mqtt_client.connect(client_id.c_str(), mqtt_username, mqtt_password)) {
         mqtt_client.subscribe(temp_threshold_topic);
-        mqtt_client.subscribe("hotpot/filter");
-        mqtt_client.subscribe("hotpot/filter/switch");
         mqtt_client.subscribe(temp_update_rate_topic);
+        mqtt_client.subscribe(outside_temperature_topic);
 
         // All set topics
-        snprintf(topic, sizeof(topic), "%s/+/set", base_topic, unique_id);
+        snprintf(topic, sizeof(topic), "%s/+/set", base_topic);
         mqtt_client.subscribe(topic);
 
         mqtt_set_availability(true);
+        // Publish retained state after reconnect so broker/clients know current state
+        publishFilterState(filter.state);
+        changeFilterMode(filter.mode);
       } else {
         delay(2000);
       }
@@ -150,6 +206,7 @@ void discoverFilterDuration()
       "\"name\":\"Filter Duration\","
       "\"unique_id\":\"%s_filter_duration\","
       "\"state_topic\":\"%s\","
+      "\"availability_topic\":\"%s\","
       "\"command_topic\":\"%s\","
       "\"min\":1,\"max\":60,\"step\":1,\"mode\":\"slider\","
       "\"unit_of_measurement\":\"min\","
@@ -162,7 +219,7 @@ void discoverFilterDuration()
         "\"sw_version\":\"%s\""
       "}"
     "}",
-    unique_id, filter_duration_state_topic, filter_duration_set_topic,
+    unique_id, filter_duration_state_topic, availability_topic, filter_duration_set_topic,
     unique_id, device_name, manufacturer, model, model_id
   );
 
@@ -176,7 +233,42 @@ void discoverFilterDuration()
            topic_prefix, unique_id, config_suffix);
 
   mqtt_client.publish(topic, payload, true);
+}
 
+void discoverTemperatureStatus()
+{
+  char payload[512];
+
+  int n = snprintf(payload, sizeof(payload),
+    "{"
+      "\"name\":\"Temperature Status\","
+      "\"unique_id\":\"%s_status\","
+      "\"state_topic\":\"%s\","
+      "\"availability_topic\":\"%s\","
+      "\"device_class\":\"enum\","
+      "\"options\":[\"hot\",\"warm\",\"cold\"],"
+      "\"icon\":\"mdi:water-thermometer\","
+      "\"device\":{"
+        "\"identifiers\":[\"%s\"],"
+        "\"name\":\"%s\","
+        "\"manufacturer\":\"%s\","
+        "\"model\":\"%s\","
+        "\"sw_version\":\"%s\""
+      "}"
+    "}",
+    unique_id, temperature_status_state_topic, availability_topic,
+    unique_id, device_name, manufacturer, model, model_id
+  );
+
+  if (n <= 0 || n >= (int)sizeof(payload)) {
+    return;
+  }
+
+  snprintf(topic, sizeof(topic),
+           "%s/sensor/%s/temperature_status/%s",
+           topic_prefix, unique_id, config_suffix);
+
+  mqtt_client.publish(topic, payload, true);
 }
 
 void discoverFilterInterval()
@@ -188,6 +280,7 @@ void discoverFilterInterval()
       "\"name\":\"Filter Interval\","
       "\"unique_id\":\"%s_filter_interval\","
       "\"state_topic\":\"%s\","
+      "\"availability_topic\":\"%s\","
       "\"command_topic\":\"%s\","
       "\"min\":1,\"max\":168,\"step\":1,\"mode\":\"slider\","
       "\"unit_of_measurement\":\"h\","
@@ -200,7 +293,7 @@ void discoverFilterInterval()
         "\"sw_version\":\"%s\""
       "}"
     "}",
-    unique_id, filter_interval_state_topic, filter_interval_set_topic,
+    unique_id, filter_interval_state_topic, availability_topic, filter_interval_set_topic,
     unique_id, device_name, manufacturer, model, model_id
   );
 
@@ -226,6 +319,7 @@ void discoverTemperatureVorlauf()
       "\"name\":\"Vorlauftemperatur\","
       "\"unique_id\":\"%s_temperature_vorlauf\","
       "\"state_topic\":\"%s\","
+      "\"availability_topic\":\"%s\","
       "\"device_class\":\"temperature\","
       "\"unit_of_measurement\":\"°C\","
       "\"state_class\":\"measurement\","
@@ -238,7 +332,7 @@ void discoverTemperatureVorlauf()
         "\"sw_version\":\"%s\""
       "}"
     "}",
-    unique_id, temperature_vorlauf_state_topic,
+    unique_id, temperature_vorlauf_state_topic, availability_topic,
     unique_id, device_name, manufacturer, model, model_id
   );
 
@@ -264,6 +358,7 @@ void discoverTemperatureRuecklauf()
       "\"name\":\"Rücklauftemperatur\","
       "\"unique_id\":\"%s_temperature_ruecklauf\","
       "\"state_topic\":\"%s\","
+      "\"availability_topic\":\"%s\","
       "\"device_class\":\"temperature\","
       "\"unit_of_measurement\":\"°C\","
       "\"state_class\":\"measurement\","
@@ -276,7 +371,7 @@ void discoverTemperatureRuecklauf()
         "\"sw_version\":\"%s\""
       "}"
     "}",
-    unique_id, temperature_ruecklauf_state_topic,
+    unique_id, temperature_ruecklauf_state_topic, availability_topic,
     unique_id, device_name, manufacturer, model, model_id
   );
 
@@ -302,6 +397,7 @@ void discoverTemperatureDifference()
       "\"name\":\"Temperaturdifferenz\","
       "\"unique_id\":\"%s_temperature_difference\","
       "\"state_topic\":\"%s\","
+      "\"availability_topic\":\"%s\","
       "\"device_class\":\"temperature\","
       "\"unit_of_measurement\":\"°C\","
       "\"state_class\":\"measurement\","
@@ -314,7 +410,7 @@ void discoverTemperatureDifference()
         "\"sw_version\":\"%s\""
       "}"
     "}",
-    unique_id, temperature_difference_state_topic,
+    unique_id, temperature_difference_state_topic, availability_topic,
     unique_id, device_name, manufacturer, model, model_id
   );
 
@@ -340,6 +436,7 @@ void discoverFilterSwitch()
       "\"name\":\"Filter\","
       "\"unique_id\":\"%s_filter\","
       "\"state_topic\":\"%s\","
+      "\"availability_topic\":\"%s\","
       "\"command_topic\":\"%s\","
       "\"payload_on\":\"ON\","
       "\"payload_off\":\"OFF\","
@@ -352,7 +449,7 @@ void discoverFilterSwitch()
         "\"sw_version\":\"%s\""
       "}"
     "}",
-    unique_id, filter_state_topic, filter_set_topic,
+    unique_id, filter_state_topic, availability_topic, filter_set_topic,
     unique_id, device_name, manufacturer, model, model_id
   );
 
@@ -378,6 +475,7 @@ void discoverFireState()
       "\"name\":\"Feuer\","
       "\"unique_id\":\"%s_fire\","
       "\"state_topic\":\"%s\","
+      "\"availability_topic\":\"%s\","
       "\"payload_on\":\"ON\","
       "\"payload_off\":\"OFF\","
       "\"device_class\":\"heat\","
@@ -390,7 +488,7 @@ void discoverFireState()
         "\"sw_version\":\"%s\""
       "}"
     "}",
-    unique_id, fire_state_topic,
+    unique_id, fire_state_topic, availability_topic,
     unique_id, device_name, manufacturer, model, model_id
   );
 
@@ -416,6 +514,7 @@ void discoverFreezeState()
       "\"name\":\"Frost\","
       "\"unique_id\":\"%s_freeze\","
       "\"state_topic\":\"%s\","
+      "\"availability_topic\":\"%s\","
       "\"payload_on\":\"ON\","
       "\"payload_off\":\"OFF\","
       "\"device_class\":\"heat\","
@@ -428,7 +527,7 @@ void discoverFreezeState()
         "\"sw_version\":\"%s\""
       "}"
     "}",
-    unique_id, freeze_state_topic,
+    unique_id, freeze_state_topic, availability_topic,
     unique_id, device_name, manufacturer, model, model_id
   );
 
@@ -454,6 +553,7 @@ void discoverFilterMode()
       "\"name\":\"Filter Mode\","
       "\"unique_id\":\"%s_filter_mode\","
       "\"state_topic\":\"%s\","
+      "\"availability_topic\":\"%s\","
       "\"icon\":\"mdi:air-filter\","
       "\"device\":{"
         "\"identifiers\":[\"%s\"],"
@@ -463,7 +563,7 @@ void discoverFilterMode()
         "\"sw_version\":\"%s\""
       "}"
     "}",
-    unique_id, filter_mode_state_topic,
+    unique_id, filter_mode_state_topic, availability_topic,
     unique_id, device_name, manufacturer, model, model_id
   );
 

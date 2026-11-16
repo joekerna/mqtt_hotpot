@@ -16,6 +16,9 @@ const float fire_threshold    = 10.0;
 const float freeze_threshold  =  1.5;
 const float freeze_hysteresis =  0.7;
 
+// Maximum conversion attempts per reading (1 + 1 retry)
+#define TEMPERATURE_MAX_ATTEMPTS 2
+
 void initTemperatureSensors()
 {
   // Connect to sensors
@@ -23,12 +26,11 @@ void initTemperatureSensors()
   //pinMode(ONE_WIRE_BUS, INPUT);
   sensors.begin();
 
-  sensors.requestTemperatures();
-  for (int i = 0; i < HISTORY_LENGTH; i++)
-  {
-     temperatures.temp_vor[i]   = sensors.getTempCByIndex(0);
-     temperatures.temp_rueck[i] = sensors.getTempCByIndex(1);
-  }
+  // Run conversions non-blocking. The history stays empty until the first
+  // valid reading arrives (see completeTemperatureReading()).
+  // From here on run conversions non-blocking
+  // (see startTemperatureReading() / completeTemperatureReading())
+  sensors.setWaitForConversion(false);
 
 }
 
@@ -50,43 +52,99 @@ void fireTendency()
       mqtt_client.publish(debug_topic, mqtt_message);
 }
 
-void updateTemperaturesFromSensor()
+// Non-blocking conversion state
+static bool          readingInProgress = false;
+static unsigned long readingStartTime  = 0;
+static unsigned int  readingAttempts   = 0;
+static bool          readingReady      = false;
+static bool          historyValid      = false;  // true after the first valid reading
+static float         pendingTempVor;
+static float         pendingTempRueck;
+
+void startTemperatureReading()
 {
-   float newTempVor;
-   float newTempRueck;
-   for (int i = 0; i < 10; i++)
+   if (readingInProgress)
+      return;  // Conversion already running, its result will be used
+
+   readingAttempts   = 1;
+   readingReady      = false;
+   readingInProgress = true;
+   readingStartTime  = millis();
+   sensors.requestTemperatures();  // Non-blocking: returns after starting the conversion
+}
+
+bool completeTemperatureReading()
+{
+   if (readingReady)
    {
-      // Get temperature updates
-      sensors.requestTemperatures();
-      newTempVor   = sensors.getTempCByIndex(0);
-      newTempRueck = sensors.getTempCByIndex(1);
+      readingReady = false;
 
-
-      // Errors?
-      if ( ((newTempVor != DALLAS_SENSOR_CRC_ERROR) && (newTempRueck != DALLAS_SENSOR_CRC_ERROR)) && ((newTempVor != DALLAS_SENSOR_NOT_INITIALIZED) && (newTempRueck != DALLAS_SENSOR_NOT_INITIALIZED)))
+      if (!historyValid)
       {
-         break;
-      }
-      else
-      {
-         snprintf(mqtt_message, sizeof(mqtt_message), "Error in temperature");
-         mqtt_client.publish(error_topic, mqtt_message);
-         if ( i == 10-1)
+         // First valid reading after boot: fill the whole history with it,
+         // so the low-pass average starts at the real temperature
+         for (int i = 0; i < HISTORY_LENGTH; i++)
          {
-            newTempRueck = temperatures.temp_rueck[0];
-            newTempVor   = temperatures.temp_vor[0];
+            temperatures.temp_vor[i]   = pendingTempVor;
+            temperatures.temp_rueck[i] = pendingTempRueck;
          }
+         historyValid = true;
+         return true;
       }
+
+      for (int i = HISTORY_LENGTH-1; i > 0; i--)
+      {
+         temperatures.temp_vor[i]   = temperatures.temp_vor[i-1];
+         temperatures.temp_rueck[i] = temperatures.temp_rueck[i-1];
+      }
+      temperatures.temp_vor[0]   = pendingTempVor;
+      temperatures.temp_rueck[0] = pendingTempRueck;
+      return true;
    }
 
-   for (int i = HISTORY_LENGTH-1; i > 0; i--)
+   if (!readingInProgress)
+      return false;
+
+   if ((millis() - readingStartTime) < (unsigned long)sensors.millisToWaitForConversion())
+      return false;  // Conversion still running
+
+   readingInProgress = false;
+   float newTempVor   = sensors.getTempCByIndex(0);
+   float newTempRueck = sensors.getTempCByIndex(1);
+
+   // Errors?
+   if ( ((newTempVor != DALLAS_SENSOR_CRC_ERROR) && (newTempRueck != DALLAS_SENSOR_CRC_ERROR)) &&
+        ((newTempVor != DALLAS_SENSOR_NOT_INITIALIZED) && (newTempRueck != DALLAS_SENSOR_NOT_INITIALIZED)) )
    {
-      temperatures.temp_vor[i]   = temperatures.temp_vor[i-1];
-      temperatures.temp_rueck[i] = temperatures.temp_rueck[i-1];
+      pendingTempVor   = newTempVor;
+      pendingTempRueck = newTempRueck;
+      readingReady     = true;
+      return false;  // Consumed on the next call
    }
-   temperatures.temp_vor[0]   = newTempVor;
-   temperatures.temp_rueck[0] = newTempRueck;
 
+   // Retry once
+   if (readingAttempts < TEMPERATURE_MAX_ATTEMPTS)
+   {
+      readingAttempts++;
+      readingStartTime  = millis();
+      readingInProgress = true;
+      sensors.requestTemperatures();
+      return false;
+   }
+
+   // All attempts failed: report once, keep last good values
+   snprintf(mqtt_message, sizeof(mqtt_message), "Error in temperature");
+   mqtt_client.publish(error_topic, mqtt_message);
+
+   // No valid reading since boot: there are no "last good values" yet,
+   // so publish nothing (and don't evaluate frost/fire) until one arrives
+   if (!historyValid)
+      return false;
+
+   pendingTempVor   = temperatures.temp_vor[0];
+   pendingTempRueck = temperatures.temp_rueck[0];
+   readingReady     = true;
+   return false;
 }
 
 float lowpass(float *temperatures)
@@ -156,18 +214,46 @@ void updateTemperaturesToMQTT()
            updateBinarysensor(freeze_state_topic, temperatures.frost);
         }
 
+        // Publish hot/warm/cold status (keeps the retained value in sync
+        // with the current water temperature, not only on filter edges)
+        publishTemperatureStatus();
+
      }
 
 }
 
 void setTemperatureChangeThreshold(float newThreshold)
 {
-      temperatures.temperature_change_threshold = newThreshold;
+   if ((newThreshold <= 0.0) || (newThreshold > 10.0))
+   {
+      snprintf(mqtt_message, sizeof(mqtt_message), "Invalid temperature change threshold: %.2f (allowed: >0.00 - 10.00)", newThreshold);
+      mqtt_client.publish(error_topic, mqtt_message);
+      return;
+   }
+   temperatures.temperature_change_threshold = newThreshold;
 }
 
 void setUpdateRate(unsigned int newUpdateRate)
 {
-   snprintf(mqtt_message, sizeof(mqtt_message), "New Update Rate: %d", newUpdateRate);
+   if ((newUpdateRate < 1) || (newUpdateRate > 3600))
+   {
+      snprintf(mqtt_message, sizeof(mqtt_message), "Invalid update rate: %u (allowed: 1-3600 s)", newUpdateRate);
+      mqtt_client.publish(error_topic, mqtt_message);
+      return;
+   }
+   snprintf(mqtt_message, sizeof(mqtt_message), "New Update Rate: %u", newUpdateRate);
    mqtt_client.publish(debug_topic, mqtt_message);
    temperatures.update_rate = newUpdateRate;
+}
+
+float getTempCByIndex(int index) {
+    return sensors.getTempCByIndex(index);
+}
+
+float getCurrentTempVorlauf() {
+    return lowpass(temperatures.temp_vor);
+}
+
+bool temperatureHistoryValid() {
+    return historyValid;
 }

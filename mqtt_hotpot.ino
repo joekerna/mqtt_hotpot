@@ -7,9 +7,17 @@
 #include "temperatures.h"
 #include "filter.h"
 
+#if MQTT_TLS
+#include <WiFiClientSecure.h>
+#endif
+
 
 // Wifi Client
+#if MQTT_TLS
+WiFiClientSecure espClient;
+#else
 WiFiClient espClient;
+#endif
 
 // MQTT Client
 PubSubClient mqtt_client(espClient);
@@ -88,6 +96,19 @@ void setup(void) {
 
 
 // -------------------------------------------------------------------------
+#if MQTT_TLS
+  // MQTT over TLS
+  if (mqtt_ca_cert[0] != '\0')
+  {
+    espClient.setCACert(mqtt_ca_cert);
+    Serial.println("MQTT TLS: broker will be verified against the CA certificate");
+  }
+  else
+  {
+    espClient.setInsecure();
+    Serial.println("MQTT TLS: no CA certificate configured - broker NOT verified (insecure!)");
+  }
+#endif
   // Connect to MQTT broker
   initTopics();
   connectMQTT();
@@ -133,12 +154,16 @@ void loop(void) {
      readTimestamp = millis();
 
 
-     // Get temperature updates
-     updateTemperaturesFromSensor();
+     // Get temperature updates (non-blocking: starts the conversion)
+     startTemperatureReading();
 
 
-     // Update Temperatures on MQTT
-     updateTemperaturesToMQTT();
+  }
+
+  // Update Temperatures on MQTT once the conversion has finished
+  if (completeTemperatureReading())
+  {
+    updateTemperaturesToMQTT();
   }
 } 
 
@@ -147,10 +172,12 @@ void connectWifi()
   // Serial.print("WiFi...");
   int retryCounter = 0;
   WiFi.begin((char *)ssid, password);
-  while ((WiFi.status() != WL_CONNECTED) & (retryCounter <= 20))
+  while ((WiFi.status() != WL_CONNECTED) && (retryCounter <= 20))
   {
     // Serial.print(".");
     Serial.println(retryCounter);
+    // Keep the MQTT session alive (keepalive ping) while we wait for WiFi
+    mqtt_client.loop();
     delay(500);
     retryCounter++;
   } 

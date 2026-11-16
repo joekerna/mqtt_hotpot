@@ -70,9 +70,43 @@ void switchFilter(bool state)
       digitalWrite(FILTER_RELAY, LOW);
       filter.state = false;
       publishFilterState(filter.state);
+
+      // Refresh the hot/warm/cold status when the filter is turned off.
+      // The status is also refreshed continuously from
+      // updateTemperaturesToMQTT(), this keeps the retained value in sync
+      // right after a manual switch.
+      publishTemperatureStatus();
     }
   }
   preferences_filter.end();
+}
+
+// Classify the current supply temperature and publish it as
+// "hot" / "warm" / "cold" to the temperature status topic.
+// Uses the last low-pass filtered reading (non-blocking). Nothing is
+// published until a valid reading is available.
+void publishTemperatureStatus()
+{
+  if (!temperatureHistoryValid())
+    return;  // No valid reading since boot yet
+
+  float currentTemp = getCurrentTempVorlauf();
+
+  const char *status;
+  if (currentTemp > 40.0f)
+  {
+    status = "hot";
+  }
+  else if (currentTemp >= 36.0f)
+  {
+    status = "warm";
+  }
+  else
+  {
+    status = "cold";
+  }
+
+  mqtt_client.publish(temperature_status_state_topic, status, true);
 }
 
 void filterControl()

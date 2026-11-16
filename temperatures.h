@@ -32,7 +32,8 @@ typedef struct {
 temperatures_t temperatures;
 
 void initTemperatureSensors();
-void updateTemperaturesFromSensor();
+void startTemperatureReading();
+bool  completeTemperatureReading();
 void updateTemperaturesToMQTT();
 void setTemperatureChangeThreshold(float newThreshold);
 
@@ -40,5 +41,16 @@ void setUpdateRate(unsigned int newUpdateRate);
 float lowpass(float *temperatures);
 
 void fireTendency();
+
+float getTempCByIndex(int index);
+
+// Non-blocking: returns the current (low-pass filtered) supply temperature
+// from the last completed reading. Used to classify hot/warm/cold.
+float getCurrentTempVorlauf();
+
+// True once at least one valid temperature reading has been stored in the
+// history. Before that, the history arrays are still zero-initialised and
+// must not be used for classification.
+bool temperatureHistoryValid();
 
 #endif

@@ -21,6 +21,7 @@ char temperature_difference_state_topic[128];
 char fire_state_topic[128];
 char freeze_state_topic[128];
 
+char temperature_status_state_topic[128];
 
 const char *availability_topic        = "hotpot/filter/available";
 const char *debug_topic               = "hotpot/debug";
@@ -35,6 +36,7 @@ void connectMQTT();
 void mqtt_callback(char *topic, byte *payload, unsigned int length);
 void mqtt_set_availability (bool state);
 
+void discoverTemperatureStatus();
 void createHomeAssistantSensor();
 
 #endif

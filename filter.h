@@ -33,6 +33,7 @@ void changeFilterMode(mode_e newMode);
 void updateFilterInterval(unsigned int newInterval);
 void updateFilterDuration(unsigned int newDuration);
 void publishFilterState(bool state);
+void publishTemperatureStatus();
 
 
 #endif
