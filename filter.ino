@@ -109,6 +109,14 @@ void publishTemperatureStatus()
   mqtt_client.publish(temperature_status_state_topic, status, true);
 }
 
+// Fire monitoring: if a fire is detected, the water is circulated every
+// FIRE_INTERVAL_MINUTES for FIRE_DURATION_MINUTES, so the heat is spread in
+// the water (used by the fire place / heat exchanger).
+// No extra state is needed: filter.onTime / filter.offTime are maintained by
+// switchFilter(), so the time difference to now can be used for the control.
+#define FIRE_INTERVAL_MINUTES 20
+#define FIRE_DURATION_MINUTES  3
+
 void filterControl()
 {
     unsigned long now = getTime();
@@ -117,6 +125,15 @@ void filterControl()
        return;
     }
 
+    // Turn off after the fire duration while a fire is detected. Frost protection
+    // is excluded, because the filter must run continuously while it is freezing.
+    if (temperatures.fire                       &&
+        filter.state                            &&
+        (filter.mode != frost)                  &&
+        ((unsigned long)((now - filter.onTime)/60) >= (unsigned long)FIRE_DURATION_MINUTES))
+    {
+      switchFilter(false);
+    }
 
     publishFilterState(filter.state);
     if (filter.state)
@@ -138,8 +155,11 @@ void filterControl()
    }
    else
    {
-      // Turn on after fixed time or if thread of frost exists
+      // Turn on after fixed time, if the water has to be circulated again because
+      // of a fire (FIRE_INTERVAL_MINUTES after the filter was turned off) or if
+      // thread of frost exists
       if (((unsigned long)((now - filter.offTime)/60/60) >= (unsigned long)filter.intervalHours) ||
+          (temperatures.fire && ((unsigned long)((now - filter.offTime)/60) >= (unsigned long)FIRE_INTERVAL_MINUTES)) ||
           (temperatures.frost))
       {
         if (temperatures.frost)

@@ -34,6 +34,7 @@ void updateFilterInterval(unsigned int newInterval);
 void updateFilterDuration(unsigned int newDuration);
 void publishFilterState(bool state);
 void publishTemperatureStatus();
+void filterControl();
 
 
 #endif
