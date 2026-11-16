@@ -188,11 +188,17 @@ void updateTemperaturesToMQTT()
         temperatures.temp_vor_last_transmitted   = temp_vor;
         temperatures.temp_rueck_last_transmitted = temp_rueck;
 
-        // Publish Fire state
-        temperatures.fire = temperatures.temp_difference > fire_threshold;
-        updateBinarysensor(fire_state_topic, temperatures.fire);
+        // Publish Fire state.
+        // The fire detection only makes sense while the filter pump is running
+        // and water is actually circulating, so the state is only evaluated and
+        // published if the filter is turned on. The last state is kept while
+        // the filter is off.
+        if (filter.state)
+        {
+           temperatures.fire = temperatures.temp_difference > fire_threshold;
+           updateBinarysensor(fire_state_topic, temperatures.fire);
+        }
 
-   
         // Calculate tendency
         fireTendency();
 
